@@ -1,0 +1,336 @@
+#!/bin/bash
+# cvpn — Cisco AnyConnect (openconnect) одновременно с VLESS или WireGuard.
+# macOS и Linux.
+#
+#   cisco — корп-сеть, split-tunnel: только маршруты от сервера Cisco и
+#           корп-домены. Совместим с vless и wg, включается в любом порядке.
+#   vless — весь остальной трафик через VLESS (sing-box, tun).
+#   wg    — весь остальной трафик через WireGuard (если настроен).
+#   vless и wg взаимоисключающие: включение одного выключает другой.
+#
+# Usage:
+#   cvpn [status]
+#   cvpn on [otp]            vless + cisco
+#   cvpn off                 выключить всё
+#   cvpn cisco on [otp]|off
+#   cvpn vless on|off
+#   cvpn vless boot on|off   Linux: поднимать vless при загрузке
+#   cvpn wg on|off
+#   cvpn password            сменить пароль Cisco
+#   cvpn log                 логи cisco и vless
+
+LIB=/usr/local/lib/cvpn
+ETC=/usr/local/etc/cvpn
+SELF="$LIB/cvpn"
+
+usage() { sed -n '12,21p' "$SELF" | sed 's/^# \{0,1\}//'; }
+
+if [ ! -f "$ETC/config" ]; then
+	echo "cvpn не установлен: нет $ETC/config. Запусти install.sh"
+	exit 1
+fi
+# shellcheck source=/dev/null
+. "$ETC/config"
+
+export PATH="${EXTRA_PATH:+$EXTRA_PATH:}/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+OS=$(uname -s)
+is_mac() { [ "$OS" = Darwin ]; }
+
+KEYCHAIN_SERVICE=cvpn
+PASSWORD_FILE="$ETC/cisco-password"
+CISCO_PID=/var/run/cvpn-cisco.pid
+CISCO_LOG=/var/log/cvpn-cisco.log
+DNS_STATE=/var/run/cvpn-dns-domains
+SINGBOX_CONF="$ETC/singbox.json"
+VLESS_LOG=/var/log/cvpn-vless.log
+VLESS_UNIT=cvpn-vless
+WG_CONF="$ETC/cvpn-wg.conf"
+WG_IF=cvpn-wg
+
+# Управляющие команды требуют root — поднимаемся через sudo сами.
+case "${1:-status}" in
+	status|log|help|-h|--help) ;;
+	password) is_mac || [ "$(id -u)" -eq 0 ] || exec sudo "$SELF" "$@" ;;
+	*) [ "$(id -u)" -eq 0 ] || exec sudo "$SELF" "$@" ;;
+esac
+
+# Отвязать процесс от терминала: Ctrl+C и закрытие окна его не убьют.
+detach() {
+	perl -e 'use POSIX "setsid"; setsid(); exec @ARGV' -- "$@"
+}
+
+# Шлюз и интерфейс физической сети: "<gw> <dev>". vless и wg default не
+# трогают: на macOS ставят маршруты половинками (0/1, 128/1...), на Linux
+# уходят в свои таблицы маршрутизации.
+phys_route() {
+	if is_mac; then
+		netstat -rn -f inet | awk '$1 == "default" && $NF !~ /^utun/ { print $2, $NF; exit }'
+	else
+		ip -4 route show table main default |
+			awk '{ for (i = 1; i < NF; i++) { if ($i == "via") g = $(i + 1); if ($i == "dev") d = $(i + 1) } print g, d; exit }'
+	fi
+}
+
+cisco_up() { pgrep -f -- "--pid-file=$CISCO_PID" >/dev/null; }
+vless_up() { pgrep -f -- "sing-box run -c $SINGBOX_CONF" >/dev/null; }
+wg_configured() { [ -f "$WG_CONF" ]; }
+wg_up() {
+	if is_mac; then pgrep -f -- "wireguard-go" >/dev/null
+	else ip link show "$WG_IF" >/dev/null 2>&1
+	fi
+}
+
+wait_gone() {
+	local _
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		"$1" || return 0
+		sleep 0.5
+	done
+	return 1
+}
+
+# Клиенты, которые ломают эту схему: сами перехватывают маршруты и DNS.
+# Демон Cisco Secure Client (vpnagentd) работает всегда, пока клиент
+# установлен, — мешает только активное подключение, его и спрашиваем.
+warn_conflicts() {
+	local c
+	for c in /opt/cisco/secureclient/bin/vpn /opt/cisco/anyconnect/bin/vpn; do
+		if [ -x "$c" ] && "$c" state 2>/dev/null | grep -q 'state: Connected'; then
+			echo "ВНИМАНИЕ: подключён Cisco Secure Client — отключись в нём, он конфликтует с cvpn"
+			break
+		fi
+	done
+	pgrep -if 'hiddify|v2box|v2rayn|nekoray|clash' >/dev/null &&
+		echo "ВНИМАНИЕ: запущен другой VPN-клиент (Hiddify/V2Box/Clash...) — если он подключён, отключи"
+	return 0
+}
+
+# IP хоста через обычный DNS (dig не смотрит в /etc/resolver и корп-DNS).
+resolve_ip() {
+	dig +short +time=3 +tries=1 "$1" 2>/dev/null | grep -E '^[0-9.]+$' | head -1
+}
+
+cisco_password() {
+	if is_mac; then
+		local user="${SUDO_USER:-}"
+		[ -n "$user" ] || return 1
+		sudo -u "$user" -H security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$CISCO_USER" -w 2>/dev/null
+	else
+		[ -s "$PASSWORD_FILE" ] && cat "$PASSWORD_FILE"
+	fi
+}
+
+# Снять split-DNS, если openconnect умер, не дойдя до disconnect.
+dns_cleanup() {
+	if is_mac && [ -f "$DNS_STATE" ]; then
+		local d
+		while read -r d; do rm -f "/etc/resolver/$d"; done < "$DNS_STATE"
+		rm -f "$DNS_STATE"
+	fi
+	return 0
+}
+
+cisco_on() {
+	if cisco_up; then echo "cisco: уже подключён"; return 0; fi
+	rm -f "$CISCO_PID"
+	dns_cleanup
+
+	local pass
+	if ! pass=$(cisco_password); then
+		echo "cisco: нет сохранённого пароля — выполни: cvpn password"
+		return 1
+	fi
+
+	local otp="${1:-}"
+	[ -n "$otp" ] || read -rp 'OTP (Enter, если не нужен): ' otp
+
+	local ip gw dev
+	ip=$(resolve_ip "$CISCO_HOST")
+	ip="${ip:-$CISCO_IP}"
+	read -r gw dev <<<"$(phys_route)"
+	if [ -z "$gw" ]; then echo "cisco: нет физической сети (не найден default)"; return 1; fi
+
+	# Шлюз cisco — строго мимо vless/wg. Иначе TLS поднимется через них, а
+	# после host-маршрута от vpnc-script пакеты сессии уйдут другим путём с
+	# другого IP: SSL read error, reconnect, обрыв.
+	if is_mac; then
+		route -n add -host "$ip" "$gw" >/dev/null 2>&1 || route -n change -host "$ip" "$gw" >/dev/null 2>&1
+	else
+		ip route replace "$ip" via "$gw" dev "$dev"
+	fi
+
+	local args=(--protocol=anyconnect --user="$CISCO_USER"
+		--servercert "$CISCO_PIN" --resolve "$CISCO_HOST:$ip"
+		--script "$LIB/vpnc-wrapper.sh"
+		--force-dpd=20 --reconnect-timeout=3600
+		--background --pid-file="$CISCO_PID")
+	[ -n "${CISCO_GROUP:-}" ] && args+=(--authgroup="$CISCO_GROUP")
+
+	printf '%s\n%s\n' "$pass" "$otp" | detach openconnect "${args[@]}" "$CISCO_HOST" >"$CISCO_LOG" 2>&1
+	sleep 1
+
+	if cisco_up; then
+		echo "cisco: подключён"
+	else
+		echo "cisco: не подключился. Лог $CISCO_LOG:"
+		tail -15 "$CISCO_LOG"
+		if is_mac; then route -n delete -host "$ip" >/dev/null 2>&1; else ip route del "$ip" 2>/dev/null; fi
+		return 1
+	fi
+}
+
+cisco_off() {
+	if cisco_up; then
+		pkill -TERM -f -- "--pid-file=$CISCO_PID"
+		wait_gone cisco_up || pkill -KILL -f -- "--pid-file=$CISCO_PID"
+		echo "cisco: отключён"
+	else
+		echo "cisco: и так выключен"
+	fi
+	rm -f "$CISCO_PID"
+	dns_cleanup
+}
+
+# Linux: правила в обход tun sing-box.
+#  55 — трафик с адреса физического интерфейса (ответы на входящие, SSH)
+#       идёт через него, а не в tun;
+#  60 — всё, у чего есть точный маршрут в main (tun cisco, шлюз cisco,
+#       локальная сеть), идёт по нему; в tun — только то, что шло бы в default.
+linux_rules() {
+	ip rule del priority 55 2>/dev/null
+	ip rule del priority 60 2>/dev/null
+	[ "${1:-}" = up ] || return 0
+	local gw dev src
+	read -r gw dev <<<"$(phys_route)"
+	src=$(ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{ sub(/\/.*/, "", $4); print $4; exit }')
+	[ -n "$src" ] && ip rule add priority 55 from "$src" lookup main
+	ip rule add priority 60 lookup main suppress_prefixlength 0
+}
+
+vless_on() {
+	if vless_up; then echo "vless: уже включён"; return 0; fi
+	wg_up && wg_off
+	if is_mac; then
+		detach sing-box run -c "$SINGBOX_CONF" >"$VLESS_LOG" 2>&1 &
+		sleep 2
+	else
+		systemctl start "$VLESS_UNIT"
+		sleep 1
+	fi
+	if vless_up; then
+		echo "vless: включён"
+	else
+		echo "vless: не поднялся. Лог:"
+		if is_mac; then tail -15 "$VLESS_LOG"; else journalctl -u "$VLESS_UNIT" -n 15 --no-pager; fi
+		return 1
+	fi
+}
+
+vless_off() {
+	if vless_up; then
+		if is_mac; then
+			pkill -TERM -f -- "sing-box run -c $SINGBOX_CONF"
+			wait_gone vless_up || pkill -KILL -f -- "sing-box run -c $SINGBOX_CONF"
+		else
+			systemctl stop "$VLESS_UNIT"
+		fi
+		echo "vless: отключён"
+	else
+		echo "vless: и так выключен"
+	fi
+}
+
+vless_boot() {
+	if is_mac; then echo "vless boot: только для Linux"; return 1; fi
+	case "${1:-}" in
+		on)  systemctl enable "$VLESS_UNIT" 2>/dev/null && echo "vless: будет включаться при загрузке" ;;
+		off) systemctl disable "$VLESS_UNIT" 2>/dev/null && echo "vless: при загрузке не включается" ;;
+		*)   echo "Usage: cvpn vless boot on|off"; return 1 ;;
+	esac
+}
+
+wg_on() {
+	if ! wg_configured; then echo "wg: не настроен (нет $WG_CONF)"; return 1; fi
+	if wg_up; then echo "wg: уже включён"; return 0; fi
+	vless_up && vless_off
+	local out
+	if out=$(wg-quick up "$WG_CONF" 2>&1); then
+		echo "wg: включён"
+	else
+		echo "wg: не поднялся:"
+		echo "$out" | tail -5
+		return 1
+	fi
+}
+
+wg_off() {
+	if wg_up; then
+		wg-quick down "$WG_CONF" >/dev/null 2>&1
+		echo "wg: отключён"
+	elif wg_configured; then
+		echo "wg: и так выключен"
+	fi
+	return 0
+}
+
+status() {
+	if cisco_up; then echo "cisco : ON"; else echo "cisco : off"; fi
+	if vless_up; then echo "vless : ON"; else echo "vless : off"; fi
+	if wg_configured; then
+		if wg_up; then echo "wg    : ON"; else echo "wg    : off"; fi
+	fi
+	echo "IP    : $(curl -s --max-time 5 https://api.ipify.org || echo 'нет ответа')"
+	if cisco_up && [ -n "${CORP_CHECK_HOST:-}" ]; then
+		local corp
+		if is_mac; then
+			corp=$(dscacheutil -q host -a name "$CORP_CHECK_HOST" | awk '/^ip_address/ { print $2; exit }')
+		else
+			corp=$(getent hosts "$CORP_CHECK_HOST" | awk '{ print $1; exit }')
+		fi
+		echo "корп  : $CORP_CHECK_HOST -> ${corp:-НЕ РЕЗОЛВИТСЯ}"
+	fi
+	warn_conflicts
+}
+
+password() {
+	if is_mac; then
+		if [ "$(id -u)" -eq 0 ]; then echo "запускай без sudo: пароль кладётся в твой Keychain"; exit 1; fi
+		echo "Пароль Cisco для $CISCO_USER (сохранится в Keychain):"
+		security add-generic-password -U -s "$KEYCHAIN_SERVICE" -a "$CISCO_USER" -w && echo "сохранён"
+	else
+		local pass
+		read -rsp "Пароль Cisco для $CISCO_USER: " pass
+		echo
+		[ -n "$pass" ] || { echo "пустой пароль, не сохраняю"; exit 1; }
+		(umask 077; printf '%s' "$pass" > "$PASSWORD_FILE")
+		echo "сохранён в $PASSWORD_FILE (читает только root)"
+	fi
+}
+
+sub_cmd() {
+	case "${2:-}" in
+		on)   "$1_on" "${@:3}" ;;
+		off)  "$1_off" ;;
+		boot) if [ "$1" = vless ]; then vless_boot "${@:3}"; else usage; exit 1; fi ;;
+		*)    echo "Usage: cvpn $1 on|off"; exit 1 ;;
+	esac
+}
+
+case "${1:-status}" in
+	status)   status ;;
+	on)       warn_conflicts; vless_on; cisco_on "${2:-}"; echo; status ;;
+	off)      cisco_off; vless_off; wg_off ;;
+	cisco)    sub_cmd cisco "${@:2}" ;;
+	vless)    sub_cmd vless "${@:2}" ;;
+	wg)       sub_cmd wg "${@:2}" ;;
+	password) password ;;
+	log)
+		echo "== cisco ($CISCO_LOG)"
+		tail -20 "$CISCO_LOG" 2>/dev/null
+		echo "== vless"
+		if is_mac; then tail -20 "$VLESS_LOG" 2>/dev/null; else journalctl -u "$VLESS_UNIT" -n 20 --no-pager 2>/dev/null; fi
+		;;
+	_rules)   linux_rules "${2:-}" ;;
+	*)        usage; exit 1 ;;
+esac
