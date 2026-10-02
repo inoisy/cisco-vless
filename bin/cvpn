@@ -166,6 +166,10 @@ cisco_on() {
 		--force-dpd=20 --reconnect-timeout=3600
 		--background --pid-file="$CISCO_PID")
 	[ -n "${CISCO_GROUP:-}" ] && args+=(--authgroup="$CISCO_GROUP")
+	# Linux: имя tun закрепляем. Иначе openconnect берёт первый свободный
+	# tunN — имя зависит от порядка запуска с sing-box, а на имена завязан
+	# фаервол хоста.
+	is_mac || args+=(--interface="${CISCO_TUN:-tun1}")
 
 	printf '%s\n%s\n' "$pass" "$otp" | detach openconnect "${args[@]}" "$CISCO_HOST" >"$CISCO_LOG" 2>&1
 	sleep 1

@@ -60,6 +60,9 @@ my %tun = (
 	strict_route => JSON::PP::false,
 	stack        => 'system',
 );
+# Linux: имя закрепляем, иначе после рестарта sing-box берёт первый свободный
+# tunN, а на имена завязан фаервол хоста. tun1 — cisco (cvpn, CISCO_TUN).
+$tun{interface_name} = 'tun0' if $^O eq 'linux';
 $tun{route_exclude_address} = [map { m{/} ? $_ : "$_/32" } @exclude] if @exclude;
 
 # DNS. На Linux sing-box регистрирует свой tun в systemd-resolved как DNS для
