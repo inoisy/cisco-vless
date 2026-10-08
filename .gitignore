@@ -1,0 +1,4 @@
+dist/
+/cvpn
+/cvpn-gui
+*.exe

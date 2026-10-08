@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cvpn</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="status" class="active">Статус</button>
+  <button role="tab" data-tab="settings">Настройки</button>
+  <button role="tab" data-tab="logs">Логи</button>
+</nav>
+
+<div id="flash" class="flash" hidden></div>
+
+<main>
+  <!-- Статус -->
+  <section id="tab-status" class="tab active">
+    <div id="daemon-down" class="card warn" hidden>
+      <b>Служба cvpn недоступна.</b>
+      <p>Установи её: <code>sudo cvpn service install</code> (Windows — от администратора).</p>
+    </div>
+
+    <div class="card">
+      <div class="row head">
+        <h2>Cisco</h2>
+        <span id="cisco-pill" class="pill">…</span>
+      </div>
+      <p class="hint">Корп-сеть: только маршруты от сервера и корп-домены.</p>
+      <div id="cisco-off-ctl" class="row">
+        <input id="otp" inputmode="numeric" autocomplete="one-time-code" placeholder="Одноразовый код (если нужен)">
+        <button id="cisco-on" class="primary">Подключить</button>
+      </div>
+      <div id="cisco-on-ctl" class="row" hidden>
+        <span id="corp" class="muted"></span>
+        <button id="cisco-off">Отключить</button>
+      </div>
+      <p id="cisco-unconf" class="hint" hidden>Не настроен — открой <a href="#" data-goto="settings">настройки</a>.</p>
+    </div>
+
+    <div class="card">
+      <div class="row head">
+        <h2>Выход в интернет</h2>
+        <span id="exit-pill" class="pill">…</span>
+      </div>
+      <p class="hint">Весь остальной трафик. Одновременно — только один.</p>
+      <div class="seg" id="exits">
+        <button data-exit="">Напрямую</button>
+        <button data-exit="vless">VLESS</button>
+        <button data-exit="wg">WireGuard</button>
+        <button data-exit="awg">AmneziaWG</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <span>Внешний IP: <b id="ip">—</b></span>
+        <button id="ip-refresh" class="link">обновить</button>
+      </div>
+      <div class="row gap">
+        <button id="all-on" class="primary">Включить всё</button>
+        <button id="all-off">Выключить всё</button>
+      </div>
+    </div>
+
+    <ul id="warnings" class="warnings"></ul>
+  </section>
+
+  <!-- Настройки -->
+  <section id="tab-settings" class="tab">
+    <form id="settings" autocomplete="off">
+      <fieldset class="card">
+        <legend>Cisco AnyConnect</legend>
+        <label>Сервер <input name="cisco_host" placeholder="vpn.example.com" required></label>
+        <label>Логин <input name="cisco_user" required></label>
+        <label>Группа (authgroup) <input name="cisco_group" placeholder="можно пусто"></label>
+        <label>Сертификат сервера
+          <span class="row">
+            <input name="cisco_pin" placeholder="pin-sha256:..." readonly>
+            <button type="button" id="probe">Получить</button>
+          </span>
+        </label>
+        <div id="probe-confirm" class="confirm" hidden>
+          <p>Сервер прислал сертификат <code id="probe-pin"></code> (IP <span id="probe-ip"></span>).
+          Сверь с тем, что дал админ, если есть.</p>
+          <button type="button" id="probe-ok" class="primary">Доверять</button>
+          <button type="button" id="probe-no">Отмена</button>
+        </div>
+        <label>Пароль Cisco
+          <span class="row">
+            <input type="password" id="password" placeholder="…">
+            <button type="button" id="password-save">Сохранить пароль</button>
+          </span>
+          <small id="password-state" class="muted"></small>
+        </label>
+        <label>Корп-домены для DNS <input name="corp_domains" placeholder="example.ru corp.local"></label>
+        <label>Корп-хост для проверки <input name="corp_check_host" placeholder="git.example.ru"></label>
+      </fieldset>
+
+      <fieldset class="card">
+        <legend>Выходы</legend>
+        <label>Ссылка VLESS
+          <span class="row">
+            <input type="password" name="vless_link" placeholder="vless://...">
+            <button type="button" class="reveal" data-for="vless_link">показать</button>
+          </span>
+        </label>
+        <label>Конфиг WireGuard <small id="wg-state" class="muted"></small>
+          <textarea name="wg_conf" rows="4" placeholder="[Interface] ... [Peer] ... — вставь или выбери файл; пусто — оставить как есть"></textarea>
+          <span class="row"><input type="file" data-into="wg_conf" accept=".conf,text/plain">
+          <label class="inline"><input type="checkbox" name="wg_del"> удалить</label></span>
+        </label>
+        <label>Конфиг AmneziaWG <small id="awg-state" class="muted"></small>
+          <textarea name="awg_conf" rows="4" placeholder="[Interface] ... Jc, Jmin, S1, H1 ... [Peer] ..."></textarea>
+          <span class="row"><input type="file" data-into="awg_conf" accept=".conf,text/plain">
+          <label class="inline"><input type="checkbox" name="awg_del"> удалить</label></span>
+        </label>
+        <label>При старте системы включать
+          <select name="boot_exit">
+            <option value="">ничего</option>
+            <option value="vless">VLESS</option>
+            <option value="wg">WireGuard</option>
+            <option value="awg">AmneziaWG</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <details class="card">
+        <summary>Пути к программам</summary>
+        <p class="hint">Пусто — cvpn ищет сам.</p>
+        <label>openconnect <input name="openconnect"></label>
+        <label>vpnc-script <input name="vpnc_script"></label>
+        <label>sing-box <input name="sing_box"></label>
+      </details>
+
+      <div class="row end">
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Логи -->
+  <section id="tab-logs" class="tab">
+    <div class="row end"><button id="logs-refresh">Обновить</button></div>
+    <h3>Cisco</h3><pre id="log-cisco"></pre>
+    <h3>VLESS</h3><pre id="log-vless"></pre>
+    <h3>Служба</h3><pre id="log-daemon"></pre>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

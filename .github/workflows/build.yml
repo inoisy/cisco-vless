@@ -1,0 +1,68 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, goos: darwin, goarch: arm64 }
+          - { os: macos-13, goos: darwin, goarch: amd64 }
+          - { os: ubuntu-latest, goos: linux, goarch: amd64 }
+          - { os: ubuntu-24.04-arm, goos: linux, goarch: arm64 }
+          - { os: windows-latest, goos: windows, goarch: amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Linux GUI deps
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Test
+        run: go vet ./cmd/cvpn ./internal/... && go test ./...
+
+      - name: Build
+        shell: bash
+        run: |
+          ver=$(git describe --tags --always)
+          ext=; gui_ld=
+          if [ "${{ matrix.goos }}" = windows ]; then ext=.exe; gui_ld=-H=windowsgui; fi
+          mkdir -p dist
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$ver" \
+            -o "dist/cvpn_${{ matrix.goos }}_${{ matrix.goarch }}$ext" ./cmd/cvpn
+          go build -trimpath -ldflags "-s -w $gui_ld" \
+            -o "dist/cvpn-gui_${{ matrix.goos }}_${{ matrix.goarch }}$ext" ./cmd/cvpn-gui
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cvpn_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --generate-notes
