@@ -28,7 +28,10 @@ type Settings struct {
 	CorpDomains   []string `json:"corp_domains"`
 	CorpCheckHost string   `json:"corp_check_host"`
 	VLESSLink     string   `json:"vless_link"`
-	BootExit      string   `json:"boot_exit"`
+	// Ссылки из подписки, скачанные клиентом (cvpn setup): у клиента может
+	// быть путь до сервера подписки, которого нет у службы без туннеля.
+	VLESSLinks string `json:"vless_links,omitempty"`
+	BootExit   string `json:"boot_exit"`
 	// Содержимое конфигов; nil — не менять, "" — удалить.
 	WGConf  *string `json:"wg_conf,omitempty"`
 	AWGConf *string `json:"awg_conf,omitempty"`

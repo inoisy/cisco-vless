@@ -434,6 +434,12 @@ func (m *Manager) writeSingBox() error {
 	if singbox.IsSubscription(links) {
 		links, err = singbox.Subscription(links, m.paths.SubscriptionCache())
 		if links == "" {
+			// Сервер подписки бывает недоступен без туннеля (провайдер режет
+			// путь до DE). Есть конфиг с прошлого раза — поднимаемся на нём.
+			if _, serr := os.Stat(m.paths.SingBoxFile()); serr == nil {
+				log.Printf("vless: %v — беру прежний singbox.json", err)
+				return nil
+			}
 			return fmt.Errorf("vless: %w", err)
 		}
 		if err != nil {

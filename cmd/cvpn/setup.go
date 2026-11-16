@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inoisy/cisco-vless/internal/client"
+	"github.com/inoisy/cisco-vless/internal/singbox"
 )
 
 // setup — те же вопросы, что задавал install.sh. Текущие значения — по
@@ -58,6 +59,18 @@ func setup() error {
 			}
 			body := string(b)
 			*t.conf = &body
+		}
+	}
+
+	// Подписку качаем здесь, от пользователя: у него может быть путь до
+	// сервера подписки (через текущий VPN), которого нет у службы до старта
+	// туннеля. Служба сохранит копию и поднимется на ней.
+	if singbox.IsSubscription(s.VLESSLink) {
+		if links, err := singbox.FetchSubscription(s.VLESSLink); err != nil {
+			fmt.Printf("ВНИМАНИЕ: подписка не скачалась (%v) — служба попробует сама при vless on\n", err)
+		} else {
+			s.VLESSLinks = links
+			fmt.Printf("подписка: %d ссылок\n", len(strings.Fields(links)))
 		}
 	}
 

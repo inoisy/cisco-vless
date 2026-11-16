@@ -152,6 +152,11 @@ func Subscription(subURL, cache string) (string, error) {
 	return string(b), fmt.Errorf("подписка: %w — беру сохранённую копию", err)
 }
 
+// FetchSubscription — ссылки из подписки без копии на диске.
+func FetchSubscription(subURL string) (string, error) {
+	return fetchSubscription(subURL, 20*time.Second)
+}
+
 func fetchSubscription(subURL string, timeout time.Duration) (string, error) {
 	c := &http.Client{Timeout: timeout}
 	resp, err := c.Get(subURL)

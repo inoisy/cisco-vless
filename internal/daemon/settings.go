@@ -56,6 +56,14 @@ func (m *Manager) SetSettings(s Settings) error {
 			return fmt.Errorf("vless: %w", err)
 		}
 	}
+	if singbox.IsSubscription(s.VLESSLink) && strings.TrimSpace(s.VLESSLinks) != "" {
+		if _, err := singbox.Config(s.VLESSLinks, nil, "linux", ""); err != nil {
+			return fmt.Errorf("подписка: %w", err)
+		}
+		if err := config.WriteFileAtomic(m.paths.SubscriptionCache(), []byte(s.VLESSLinks), 0o600); err != nil {
+			return fmt.Errorf("подписка: %w", err)
+		}
+	}
 	switch s.BootExit {
 	case "", config.ExitVLESS, config.ExitWG, config.ExitAWG:
 	default:
