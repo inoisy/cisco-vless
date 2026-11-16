@@ -66,7 +66,7 @@ func LookupSystem(host string) string {
 
 func PublicDNS() []string { return nil }
 
-var conflictProcs = []string{"hiddify", "v2box", "v2rayn", "nekoray", "clash", "amneziavpn"}
+var conflictProcs = []string{"hiddify", "v2box", "v2rayn", "nekoray", "clash", "amneziavpn", "happ", "xray"}
 
 func Conflicts() []string {
 	var w []string
@@ -84,7 +84,7 @@ func Conflicts() []string {
 	low := strings.ToLower(out)
 	for _, p := range conflictProcs {
 		if strings.Contains(low, p) {
-			w = append(w, "запущен другой VPN-клиент (Hiddify/V2Box/Clash/Amnezia...) — если он подключён, отключи")
+			w = append(w, "запущен другой VPN-клиент (Hiddify/V2Box/Clash/Amnezia/Happ...) — если он подключён, отключи")
 			break
 		}
 	}

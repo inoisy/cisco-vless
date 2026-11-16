@@ -18,7 +18,7 @@ func parse(t *testing.T, b []byte) map[string]any {
 }
 
 func TestReality(t *testing.T) {
-	b, err := Config(reality, []string{"1.2.3.4", "10.0.0.0/8"}, "linux")
+	b, err := Config(reality, []string{"1.2.3.4", "10.0.0.0/8"}, "linux", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestReality(t *testing.T) {
 
 func TestTunNamePerOS(t *testing.T) {
 	for goos, want := range map[string]any{"darwin": nil, "windows": "cvpn-vless"} {
-		b, err := Config(reality, nil, goos)
+		b, err := Config(reality, nil, goos, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestTunNamePerOS(t *testing.T) {
 }
 
 func TestIPv6AndEscapes(t *testing.T) {
-	b, err := Config("vless://a%2Bb@[2001:db8::1]:8443?security=tls&sni=x.com", nil, "darwin")
+	b, err := Config("vless://a%2Bb@[2001:db8::1]:8443?security=tls&sni=x.com", nil, "darwin", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +75,60 @@ func TestErrors(t *testing.T) {
 		"vless://u@h:443?security=reality": "pbk",
 		"vless://u@h:443?security=xtls":    "security",
 	} {
-		if _, err := Config(link, nil, "linux"); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := Config(link, nil, "linux", ""); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err=%v, want %q", link, err, want)
+		}
+	}
+}
+
+func TestRussiaDirect(t *testing.T) {
+	b, err := Config(reality, nil, "darwin", "/etc/cvpn/geoip-ru.srs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := parse(t, b)
+	rules := m["route"].(map[string]any)["rules"].([]any)
+	var got []string
+	for _, r := range rules[2:] {
+		r := r.(map[string]any)
+		got = append(got, r["outbound"].(string))
+	}
+	// api.reg.ru — в proxy раньше зоны .ru, иначе правило зоны его перехватит.
+	if strings.Join(got, ",") != "direct,proxy,direct,direct" {
+		t.Fatalf("порядок правил: %v", got)
+	}
+	if rules[3].(map[string]any)["domain"].([]any)[0] != "api.reg.ru" {
+		t.Fatalf("исключение reg.ru: %v", rules[3])
+	}
+	dns := m["dns"].(map[string]any)["rules"].([]any)
+	if dns[1].(map[string]any)["server"] != "ru" {
+		t.Fatalf("dns: %v", dns)
+	}
+}
+
+func TestGeoIPLocal(t *testing.T) {
+	b, err := Config(reality, nil, "darwin", "/etc/cvpn/geoip-ru.srs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := parse(t, b)["route"].(map[string]any)["rule_set"].([]any)[0].(map[string]any)
+	if rs["type"] != "local" || rs["path"] != "/etc/cvpn/geoip-ru.srs" || rs["url"] != nil {
+		t.Fatalf("rule_set: %v", rs)
+	}
+}
+
+func TestNoGeoIP(t *testing.T) {
+	b, err := Config(reality, nil, "darwin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := parse(t, b)["route"].(map[string]any)
+	if _, ok := route["rule_set"]; ok {
+		t.Fatalf("rule_set без файла: %v", route["rule_set"])
+	}
+	for _, r := range route["rules"].([]any) {
+		if _, ok := r.(map[string]any)["rule_set"]; ok {
+			t.Fatalf("правило geoip без файла: %v", r)
 		}
 	}
 }

@@ -11,7 +11,7 @@ import (
 
 func hideWindow(*exec.Cmd) {}
 
-var conflictRe = regexp.MustCompile(`(?i)hiddify|v2box|v2rayn|nekoray|clash|amneziavpn`)
+var conflictRe = regexp.MustCompile(`(?i)hiddify|v2box|v2rayn|nekoray|clash|amneziavpn|\bhapp\b|\bxray\b`)
 
 // Conflicts — клиенты, которые ломают схему: сами перехватывают маршруты и
 // DNS. Демон Cisco Secure Client (vpnagentd) работает всегда, пока клиент
@@ -28,7 +28,7 @@ func Conflicts() []string {
 		}
 	}
 	if out, err := Run("ps", "-axo", "comm="); err == nil && conflictRe.MatchString(out) {
-		w = append(w, "запущен другой VPN-клиент (Hiddify/V2Box/Clash/Amnezia...) — если он подключён, отключи")
+		w = append(w, "запущен другой VPN-клиент (Hiddify/V2Box/Clash/Amnezia/Happ...) — если он подключён, отключи")
 	}
 	return w
 }

@@ -52,7 +52,7 @@ func (m *Manager) SetSettings(s Settings) error {
 		return fmt.Errorf("сертификат — в виде pin-sha256:...")
 	}
 	if s.VLESSLink != "" {
-		if _, err := singbox.Config(s.VLESSLink, nil, "linux"); err != nil {
+		if _, err := singbox.Config(s.VLESSLink, nil, "linux", ""); err != nil {
 			return fmt.Errorf("vless: %w", err)
 		}
 	}

@@ -1,5 +1,5 @@
-// Package singbox превращает ссылку vless:// в конфиг sing-box: tun, весь
-// трафик через VLESS.
+// Package singbox превращает ссылку vless:// в конфиг sing-box: tun, трафик
+// через VLESS, российские сайты — напрямую.
 package singbox
 
 import (
@@ -25,11 +25,23 @@ func TunName(goos string) string {
 	return ""
 }
 
+// Российские сайты идут напрямую, с адреса провайдера: маркетплейсы, банки и
+// Метрика режут или проверяют зарубежные IP. Домены — по зонам, остальное
+// (CDN на .com, vk.com) — по geoip. DNS для зон — Яндекс напрямую, чтобы CDN
+// отдавал российские узлы.
+var ruSuffixes = []string{"ru", "su", "xn--p1ai", "xn--p1acf", "moscow", "xn--80adxhks"}
+
+// viaProxy — российские адреса, которым нужен именно выход VLESS: у reg.ru API
+// белый список IP.
+var viaProxy = []string{"api.reg.ru"}
+
 var linkRe = regexp.MustCompile(`^vless://([^@]+)@(\[[^\]]+\]|[^:/?#]+):(\d+)/?(?:\?([^#]*))?(?:#.*)?$`)
 
 // Config строит конфиг sing-box. exclude — адреса в обход туннеля (шлюз
-// Cisco, публичные DNS провайдера); без маски считаются /32.
-func Config(link string, exclude []string, goos string) ([]byte, error) {
+// Cisco, публичные DNS провайдера); без маски считаются /32. geoip — путь к
+// локальному geoip-ru.srs (см. EnsureGeoIP); пустой — российские IP без
+// правила, напрямую идут только зоны.
+func Config(link string, exclude []string, goos, geoip string) ([]byte, error) {
 	m := linkRe.FindStringSubmatch(strings.TrimSpace(link))
 	if m == nil {
 		return nil, fmt.Errorf("не похоже на ссылку vless://uuid@host:port?...")
@@ -126,6 +138,11 @@ func Config(link string, exclude []string, goos string) ([]byte, error) {
 			"servers": []any{
 				map[string]any{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "proxy"},
 				map[string]any{"type": "udp", "tag": "bootstrap", "server": "1.1.1.1"},
+				map[string]any{"type": "udp", "tag": "ru", "server": "77.88.8.8"},
+			},
+			"rules": []any{
+				map[string]any{"domain": viaProxy, "server": "remote"},
+				map[string]any{"domain_suffix": ruSuffixes, "server": "ru"},
 			},
 			"final": "remote",
 		},
@@ -138,9 +155,22 @@ func Config(link string, exclude []string, goos string) ([]byte, error) {
 				map[string]any{"action": "sniff"},
 				map[string]any{"protocol": "dns", "action": "hijack-dns"},
 				map[string]any{"ip_is_private": true, "outbound": "direct"},
+				map[string]any{"domain": viaProxy, "outbound": "proxy"},
+				map[string]any{"domain_suffix": ruSuffixes, "outbound": "direct"},
 			},
 			"final": "proxy",
 		},
+	}
+	// Rule-set локальный: удалённый sing-box качает на каждом старте и, не
+	// успев за 10 с, падает ("initialize rule-set take too much time" →
+	// "start service: context canceled").
+	if geoip != "" {
+		route := cfg["route"].(map[string]any)
+		route["rules"] = append(route["rules"].([]any),
+			map[string]any{"rule_set": "geoip-ru", "outbound": "direct"})
+		route["rule_set"] = []any{map[string]any{
+			"type": "local", "tag": "geoip-ru", "format": "binary", "path": geoip,
+		}}
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
