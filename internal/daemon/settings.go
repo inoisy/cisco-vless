@@ -51,7 +51,7 @@ func (m *Manager) SetSettings(s Settings) error {
 	if s.CiscoPin != "" && !strings.HasPrefix(s.CiscoPin, "pin-sha256:") {
 		return fmt.Errorf("сертификат — в виде pin-sha256:...")
 	}
-	if s.VLESSLink != "" {
+	if s.VLESSLink != "" && !singbox.IsSubscription(s.VLESSLink) {
 		if _, err := singbox.Config(s.VLESSLink, nil, "linux", ""); err != nil {
 			return fmt.Errorf("vless: %w", err)
 		}

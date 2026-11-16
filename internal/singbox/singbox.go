@@ -37,72 +37,19 @@ var viaProxy = []string{"api.reg.ru"}
 
 var linkRe = regexp.MustCompile(`^vless://([^@]+)@(\[[^\]]+\]|[^:/?#]+):(\d+)/?(?:\?([^#]*))?(?:#.*)?$`)
 
-// Config строит конфиг sing-box. exclude — адреса в обход туннеля (шлюз
-// Cisco, публичные DNS провайдера); без маски считаются /32. geoip — путь к
-// локальному geoip-ru.srs (см. EnsureGeoIP); пустой — российские IP без
-// правила, напрямую идут только зоны.
-func Config(link string, exclude []string, goos, geoip string) ([]byte, error) {
-	m := linkRe.FindStringSubmatch(strings.TrimSpace(link))
-	if m == nil {
-		return nil, fmt.Errorf("не похоже на ссылку vless://uuid@host:port?...")
-	}
-	uuid := unesc(m[1])
-	host := strings.Trim(m[2], "[]")
-	port, err := strconv.Atoi(m[3])
-	if err != nil || port <= 0 || port > 65535 {
-		return nil, fmt.Errorf("плохой порт %q", m[3])
-	}
-	p := map[string]string{}
-	for _, kv := range strings.Split(m[4], "&") {
-		if kv == "" {
-			continue
-		}
-		k, v, _ := strings.Cut(kv, "=")
-		p[k] = unesc(v)
-	}
-
-	if t := p["type"]; t != "" && t != "tcp" {
-		return nil, fmt.Errorf("транспорт %q пока не поддержан, только tcp", t)
-	}
-
-	out := map[string]any{
-		"type":        "vless",
-		"tag":         "proxy",
-		"server":      host,
-		"server_port": port,
-		"uuid":        uuid,
-	}
-	if p["flow"] != "" {
-		out["flow"] = p["flow"]
-	}
-
-	security := p["security"]
-	if security == "" {
-		security = "none"
-	}
-	switch security {
-	case "reality", "tls":
-		tls := map[string]any{"enabled": true}
-		if p["sni"] != "" {
-			tls["server_name"] = p["sni"]
-		}
-		if p["fp"] != "" {
-			tls["utls"] = map[string]any{"enabled": true, "fingerprint": p["fp"]}
-		}
-		if security == "reality" {
-			if p["pbk"] == "" {
-				return nil, fmt.Errorf("в ссылке нет pbk (публичный ключ reality)")
-			}
-			r := map[string]any{"enabled": true, "public_key": p["pbk"]}
-			if p["sid"] != "" {
-				r["short_id"] = p["sid"]
-			}
-			tls["reality"] = r
-		}
-		out["tls"] = tls
-	case "none":
-	default:
-		return nil, fmt.Errorf("security %q не поддержан", security)
+// Config строит конфиг sing-box. links — одна или несколько ссылок
+// (vless://, hysteria2://) через пробел или перевод строки. Одна — outbound
+// proxy; несколько — каждая своим outbound, а proxy — группа urltest: sing-box
+// сам держит живой сервер с меньшей задержкой и уходит на другой, когда этот
+// перестал отвечать (DE напрямую ↔ RU через посредника). Ссылки, которые
+// sing-box не поднимет (xhttp), в группе пропускаются.
+// exclude — адреса в обход туннеля (шлюз Cisco, публичные DNS провайдера);
+// без маски считаются /32. geoip — путь к локальному geoip-ru.srs (см.
+// EnsureGeoIP); пустой — российские IP без правила, напрямую идут только зоны.
+func Config(links string, exclude []string, goos, geoip string) ([]byte, error) {
+	outs, err := Outbounds(links)
+	if err != nil {
+		return nil, err
 	}
 
 	tun := map[string]any{
@@ -147,7 +94,7 @@ func Config(link string, exclude []string, goos, geoip string) ([]byte, error) {
 			"final": "remote",
 		},
 		"inbounds":  []any{tun},
-		"outbounds": []any{out, map[string]any{"type": "direct", "tag": "direct"}},
+		"outbounds": append(outs, map[string]any{"type": "direct", "tag": "direct"}),
 		"route": map[string]any{
 			"auto_detect_interface":   true,
 			"default_domain_resolver": "bootstrap",
@@ -173,6 +120,73 @@ func Config(link string, exclude []string, goos, geoip string) ([]byte, error) {
 		}}
 	}
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// vlessOutbound — outbound из ссылки vless://.
+func vlessOutbound(link, tag string) (map[string]any, error) {
+	m := linkRe.FindStringSubmatch(strings.TrimSpace(link))
+	if m == nil {
+		return nil, fmt.Errorf("не похоже на ссылку vless://uuid@host:port?...")
+	}
+	uuid := unesc(m[1])
+	host := strings.Trim(m[2], "[]")
+	port, err := strconv.Atoi(m[3])
+	if err != nil || port <= 0 || port > 65535 {
+		return nil, fmt.Errorf("плохой порт %q", m[3])
+	}
+	p := map[string]string{}
+	for _, kv := range strings.Split(m[4], "&") {
+		if kv == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(kv, "=")
+		p[k] = unesc(v)
+	}
+
+	if t := p["type"]; t != "" && t != "tcp" {
+		return nil, fmt.Errorf("транспорт %q пока не поддержан, только tcp", t)
+	}
+
+	out := map[string]any{
+		"type":        "vless",
+		"tag":         tag,
+		"server":      host,
+		"server_port": port,
+		"uuid":        uuid,
+	}
+	if p["flow"] != "" {
+		out["flow"] = p["flow"]
+	}
+
+	security := p["security"]
+	if security == "" {
+		security = "none"
+	}
+	switch security {
+	case "reality", "tls":
+		tls := map[string]any{"enabled": true}
+		if p["sni"] != "" {
+			tls["server_name"] = p["sni"]
+		}
+		if p["fp"] != "" {
+			tls["utls"] = map[string]any{"enabled": true, "fingerprint": p["fp"]}
+		}
+		if security == "reality" {
+			if p["pbk"] == "" {
+				return nil, fmt.Errorf("в ссылке нет pbk (публичный ключ reality)")
+			}
+			r := map[string]any{"enabled": true, "public_key": p["pbk"]}
+			if p["sid"] != "" {
+				r["short_id"] = p["sid"]
+			}
+			tls["reality"] = r
+		}
+		out["tls"] = tls
+	case "none":
+	default:
+		return nil, fmt.Errorf("security %q не поддержан", security)
+	}
+	return out, nil
 }
 
 func unesc(s string) string {

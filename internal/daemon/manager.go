@@ -430,7 +430,17 @@ func (m *Manager) writeSingBox() error {
 		log.Printf("vless: без geoip-ru, напрямую только зоны .ru и др.")
 		geoip = ""
 	}
-	b, err := singbox.Config(m.cfg.VLESSLink, exclude, runtime.GOOS, geoip)
+	links := m.cfg.VLESSLink
+	if singbox.IsSubscription(links) {
+		links, err = singbox.Subscription(links, m.paths.SubscriptionCache())
+		if links == "" {
+			return fmt.Errorf("vless: %w", err)
+		}
+		if err != nil {
+			log.Printf("vless: %v", err)
+		}
+	}
+	b, err := singbox.Config(links, exclude, runtime.GOOS, geoip)
 	if err != nil {
 		return fmt.Errorf("vless: %w", err)
 	}

@@ -14,11 +14,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 
 	"github.com/inoisy/cisco-vless/internal/client"
 	"github.com/inoisy/cisco-vless/internal/config"
+	"github.com/inoisy/cisco-vless/internal/singbox"
 	"github.com/inoisy/cisco-vless/internal/vpncscript"
 )
 
@@ -104,6 +106,8 @@ func run(cmd string, args []string) error {
 		return runDaemon()
 	case "_vpnc-script":
 		os.Exit(vpncScript())
+	case "_singbox-config":
+		return singboxConfig(args[1:])
 	case "version", "--version":
 		fmt.Println("cvpn", version)
 		return nil
@@ -113,6 +117,40 @@ func run(cmd string, args []string) error {
 	}
 	fmt.Fprintln(os.Stderr, usage)
 	os.Exit(2)
+	return nil
+}
+
+// singboxConfig печатает singbox.json без службы: для bash-версии и отладки.
+//
+//	cvpn _singbox-config <ссылки | https://подписка> [geoip-ru.srs] [адрес-в-обход ...]
+func singboxConfig(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("Usage: cvpn _singbox-config <ссылки | https://подписка> [geoip-ru.srs] [адрес-в-обход ...]")
+	}
+	links := args[0]
+	if singbox.IsSubscription(links) {
+		var err error
+		links, err = singbox.Subscription(links, filepath.Join(os.TempDir(), "cvpn-subscription.txt"))
+		if links == "" {
+			return err
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	}
+	geoip := ""
+	if len(args) > 1 {
+		geoip = args[1]
+	}
+	var exclude []string
+	if len(args) > 2 {
+		exclude = args[2:]
+	}
+	b, err := singbox.Config(links, exclude, runtime.GOOS, geoip)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
 	return nil
 }
 

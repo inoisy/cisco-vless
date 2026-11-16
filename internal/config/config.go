@@ -96,6 +96,9 @@ func Default() Paths {
 func (p Paths) ConfigFile() string  { return filepath.Join(p.Etc, "config.json") }
 func (p Paths) SingBoxFile() string { return filepath.Join(p.Etc, "singbox.json") }
 func (p Paths) GeoIPFile() string   { return filepath.Join(p.Etc, "geoip-ru.srs") }
+func (p Paths) SubscriptionCache() string {
+	return filepath.Join(p.Etc, "subscription.txt")
+}
 func (p Paths) PasswordFile() string {
 	return filepath.Join(p.Etc, "cisco-password")
 }

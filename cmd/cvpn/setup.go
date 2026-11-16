@@ -29,10 +29,10 @@ func setup() error {
 	s.CorpDomains = strings.Fields(ask("Корп-домены для DNS через пробел (example.ru corp.local)", strings.Join(s.CorpDomains, " ")))
 	s.CorpCheckHost = ask("Корп-хост для проверки в cvpn status", s.CorpCheckHost)
 
-	link := askSecret("Ссылка vless://... (не отображается; Enter — оставить как есть)")
+	link := askSecret("Ссылка vless://... или адрес подписки https://... (не отображается; Enter — оставить как есть)")
 	if link != "" {
-		if !strings.HasPrefix(link, "vless://") {
-			return fmt.Errorf("нужна ссылка vless://")
+		if !strings.HasPrefix(link, "vless://") && !strings.HasPrefix(link, "https://") {
+			return fmt.Errorf("нужна ссылка vless:// или адрес подписки https://")
 		}
 		s.VLESSLink = link
 	}
