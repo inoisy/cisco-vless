@@ -46,6 +46,20 @@ case "$OS" in Darwin|Linux) ;; *) die "ОС $OS не поддержана (Windo
 case "$(uname -m)" in x86_64|amd64) ARCH=amd64 ;; arm64|aarch64) ARCH=arm64 ;; *) die "архитектура $(uname -m)" ;; esac
 GOOS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
 
+# Сервер с bash-версией (VPS агентов): sing-box там — отдельный юнит
+# cvpn-vless, на нём держатся сторож и подписка, singbox.json правлен руками.
+# Go-версия этот юнит удаляет и пересобирает конфиг — не ставим.
+# Обновлять такой сервер — server/install.sh. Обход — CVPN_FORCE_GO=1.
+if [ "$OS" = Linux ] && [ "${CVPN_FORCE_GO:-}" != 1 ]; then
+	for u in cvpn-guard.timer cvpn-sub.timer; do
+		if systemctl cat "$u" >/dev/null 2>&1; then
+			die "здесь $u — сервер на bash-версии cvpn (юнит cvpn-vless, ручной singbox.json).
+Go-версия снесёт cvpn-vless и перепишет конфиг. Обновление — server/install.sh, см. README «Сервер».
+Ставить Go всё равно — CVPN_FORCE_GO=1 (сначала бэкап, см. README)."
+		fi
+	done
+fi
+
 GUI=${CVPN_GUI:-}
 if [ -z "$GUI" ]; then
 	if [ "$OS" = Darwin ]; then GUI=1

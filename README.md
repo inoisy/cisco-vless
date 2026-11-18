@@ -66,6 +66,8 @@ Cisco Secure Client и другие VPN-клиенты перед работой
 
 Обновление с bash-версии — тот же `./install.sh`: старая выключится,
 настройки и пароль подхватятся, sudo для `cvpn` больше не нужен.
+Исключение — сервер, где sing-box живёт отдельным юнитом и на нём держатся
+другие службы: см. «Сервер».
 
 ## Команды
 
@@ -120,6 +122,42 @@ cisco совместим с любым выходом; vless, wg и awg — вз
 | программа | `/usr/local/lib/cvpn` | `C:\Program Files\cvpn` |
 | настройки | `/usr/local/etc/cvpn` (`config.json`, `singbox.json`, `cvpn-wg.conf`, `cvpn-awg.conf`) | `C:\ProgramData\cvpn` |
 | логи | `/var/log/cvpn-*.log` | `C:\ProgramData\cvpn\log` |
+
+## Сервер: bash-версия (`server/`)
+
+На сервере, где выход VLESS нужен службам, а не человеку (VPS агентов),
+стоит bash-версия: `server/cvpn` — последняя bash-версия до Go (`0b40a84`),
+`server/vpnc-wrapper.sh`, `server/cvpn-vless.service`. Отличие от Go:
+
+- sing-box — отдельный юнит `cvpn-vless`, а не дочерний процесс службы:
+  на него ссылаются другие юниты (`Wants/After`, сторож делает stop/start),
+  а обновление cvpn не перезапускает выход;
+- `singbox.json` cvpn не пишет: конфиг правят руками и свои скрипты (свои
+  маршруты, selector каналов, `clash_api`). Go пересобирает его при каждом
+  `vless on` со ссылкой в настройках и добавляет правила для Мака (зоны `.ru`
+  и geoip RU напрямую), серверу они не нужны.
+
+Обновить файлы (конфиг не трогает, выход не перезапускает):
+
+```sh
+sudo server/install.sh --dry-run   # что поменяется
+sudo server/install.sh
+```
+
+Корневой `install.sh` на таком сервере (есть `cvpn-guard.timer` или
+`cvpn-sub.timer`) отказывается работать; обход — `CVPN_FORCE_GO=1`, перед
+этим бэкап `/usr/local/lib/cvpn`, `/usr/local/etc/cvpn` и юнита.
+
+Общее у версий — правила в обход tun sing-box на Linux, держать одинаковыми:
+`_rules` в `server/cvpn` и `linuxRules` в
+`internal/daemon/platform_linux.go`:
+
+| приоритет | правило | зачем |
+|---|---|---|
+| 55 | `from <адрес физического интерфейса> lookup main` | ответы на входящие (SSH) и трафик, привязанный к адресу, — мимо tun |
+| 60 | `lookup main suppress_prefixlength 0` | всё, у чего есть точный маршрут (tun cisco, шлюз cisco, локальная сеть), — по нему |
+
+Имена tun тоже общие: sing-box `tun0`, cisco `tun1`.
 
 ## Ограничения
 
