@@ -3,15 +3,17 @@ package daemon
 // Типы запросов и ответов API демона — общие для CLI и GUI.
 
 type Status struct {
-	Cisco      bool     `json:"cisco"`
-	Exit       string   `json:"exit"`       // vless | wg | awg | ""
-	Exits      []string `json:"exits"`      // какие выходы настроены
-	Configured bool     `json:"configured"` // cisco настроен
-	IP         string   `json:"ip,omitempty"`
-	CorpHost   string   `json:"corp_host,omitempty"`
-	CorpIP     string   `json:"corp_ip,omitempty"`
-	Warnings   []string `json:"warnings,omitempty"`
-	OS         string   `json:"os"`
+	Cisco bool `json:"cisco"`
+	// Cisco отвалилась сама (не cvpn off) — значок просит новый OTP.
+	CiscoDropped bool     `json:"cisco_dropped,omitempty"`
+	Exit         string   `json:"exit"`       // vless | wg | awg | ""
+	Exits        []string `json:"exits"`      // какие выходы настроены
+	Configured   bool     `json:"configured"` // cisco настроен
+	IP           string   `json:"ip,omitempty"`
+	CorpHost     string   `json:"corp_host,omitempty"`
+	CorpIP       string   `json:"corp_ip,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+	OS           string   `json:"os"`
 }
 
 type CiscoOn struct {
@@ -31,7 +33,9 @@ type Settings struct {
 	// Ссылки из подписки, скачанные клиентом (cvpn setup): у клиента может
 	// быть путь до сервера подписки, которого нет у службы без туннеля.
 	VLESSLinks string `json:"vless_links,omitempty"`
-	BootExit   string `json:"boot_exit"`
+	// То же для нескольких подписок: адрес → ссылки.
+	VLESSSubs map[string]string `json:"vless_subs,omitempty"`
+	BootExit  string            `json:"boot_exit"`
 	// Содержимое конфигов; nil — не менять, "" — удалить.
 	WGConf  *string `json:"wg_conf,omitempty"`
 	AWGConf *string `json:"awg_conf,omitempty"`

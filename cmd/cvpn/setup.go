@@ -30,10 +30,18 @@ func setup() error {
 	s.CorpDomains = strings.Fields(ask("Корп-домены для DNS через пробел (example.ru corp.local)", strings.Join(s.CorpDomains, " ")))
 	s.CorpCheckHost = ask("Корп-хост для проверки в cvpn status", s.CorpCheckHost)
 
-	link := askSecret("Ссылка vless://... или адрес подписки https://... (не отображается; Enter — оставить как есть)")
+	if subs, links := singbox.Sources(s.VLESSLink); len(subs)+len(links) > 0 {
+		fmt.Printf("vless сейчас: подписок %d, ссылок %d\n", len(subs), len(links))
+	}
+	link := askSecret("Ссылки vless:// / hysteria2:// и адреса подписок https:// через пробел (не отображается;\n" +
+		"  Enter — оставить как есть, + в начале — добавить к текущим)")
 	if link != "" {
-		if !strings.HasPrefix(link, "vless://") && !strings.HasPrefix(link, "https://") {
-			return fmt.Errorf("нужна ссылка vless:// или адрес подписки https://")
+		if rest, ok := strings.CutPrefix(link, "+"); ok {
+			link = s.VLESSLink + " " + rest
+		}
+		link = strings.Join(strings.Fields(link), " ")
+		if err := singbox.CheckSources(link); err != nil {
+			return err
 		}
 		s.VLESSLink = link
 	}
@@ -65,20 +73,17 @@ func setup() error {
 	// Подписку качаем здесь, от пользователя: у него может быть путь до
 	// сервера подписки (через текущий VPN), которого нет у службы до старта
 	// туннеля. Служба сохранит копию и поднимется на ней.
-	if singbox.IsSubscription(s.VLESSLink) {
-		if links, err := singbox.FetchSubscription(s.VLESSLink); err != nil {
-			fmt.Printf("ВНИМАНИЕ: подписка не скачалась (%v) — служба попробует сама при vless on\n", err)
-		} else {
-			s.VLESSLinks = links
-			fmt.Printf("подписка: %d ссылок\n", len(strings.Fields(links)))
-		}
-	}
+	s.VLESSSubs = prefetchSubs(s.VLESSLink)
 
 	probe, err := c.Probe(s.CiscoHost)
-	if err != nil {
+	switch {
+	case err != nil && s.CiscoPin != "":
+		// Сервер сейчас недоступен (DNS у другого VPN, нет сети) — сертификат
+		// уже доверен, остальные настройки сохраняем.
+		fmt.Printf("ВНИМАНИЕ: сертификат не проверен (%v) — оставляю сохранённый\n", err)
+	case err != nil:
 		return err
-	}
-	if probe.Pin != s.CiscoPin {
+	case probe.Pin != s.CiscoPin:
 		fmt.Printf("\nСертификат %s (%s): %s\n", s.CiscoHost, probe.IP, probe.Pin)
 		if s.CiscoPin != "" {
 			fmt.Printf("ВНИМАНИЕ: сохранён другой: %s\n", s.CiscoPin)
@@ -99,6 +104,19 @@ func setup() error {
 		return setPassword(c, saved.CiscoUser)
 	}
 	return nil
+}
+
+// prefetchSubs качает подписки настройки vless от пользователя; что не
+// скачалось — служба попробует сама при vless on или возьмёт копию.
+func prefetchSubs(spec string) map[string]string {
+	got, warns := singbox.FetchSubscriptions(spec)
+	for _, w := range warns {
+		fmt.Println("ВНИМАНИЕ:", w)
+	}
+	for u, links := range got {
+		fmt.Printf("подписка %s: %d ссылок\n", singbox.SubHost(u), len(strings.Fields(links)))
+	}
+	return got
 }
 
 func password() error {

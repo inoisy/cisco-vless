@@ -95,3 +95,67 @@ func TestIsSubscription(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveMixed(t *testing.T) {
+	up := map[string]bool{"/a": true, "/b": true}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !up[r.URL.Path] {
+			http.Error(w, "down", 503)
+			return
+		}
+		if r.URL.Path == "/a" {
+			w.Write([]byte(base64.StdEncoding.EncodeToString([]byte(de + "\n"))))
+			return
+		}
+		w.Write([]byte(hy2 + "\n"))
+	}))
+	defer srv.Close()
+	// httptest отдаёт http://, а Sources считает подпиской только https:// —
+	// разбор проверяем на https-адресах, скачивание — через resolveList.
+	a, b := srv.URL+"/a", srv.URL+"/b"
+	dir := t.TempDir()
+	cache := func(u string) string { return filepath.Join(dir, filepath.Base(u)) }
+
+	spec := ru + " " + a + " " + b
+	if subs, links := Sources(strings.ReplaceAll(spec, "http://", "https://")); len(subs) != 2 || len(links) != 1 {
+		t.Fatalf("subs=%d links=%d", len(subs), len(links))
+	}
+	got, warns, err := resolveList([]string{a, b}, []string{ru}, cache)
+	if err != nil || len(warns) != 0 || len(strings.Fields(got)) != 3 {
+		t.Fatalf("got=%q warns=%v err=%v", got, warns, err)
+	}
+	// Одна подписка упала — берётся её копия, ссылки остаются.
+	up["/a"] = false
+	got, warns, err = resolveList([]string{a, b}, []string{ru}, cache)
+	if err != nil || len(warns) != 1 || !strings.Contains(got, "DE-TCP-443") {
+		t.Fatalf("got=%q warns=%v err=%v", got, warns, err)
+	}
+	// Упала подписка без копии — пропускается, остальное живо.
+	os.Remove(cache(a))
+	got, warns, err = resolveList([]string{a, b}, []string{ru}, cache)
+	if err != nil || len(warns) != 1 || strings.Contains(got, "DE-TCP-443") || len(strings.Fields(got)) != 2 {
+		t.Fatalf("got=%q warns=%v err=%v", got, warns, err)
+	}
+	// Ничего не осталось — ошибка.
+	up["/b"] = false
+	os.Remove(cache(b))
+	if _, _, err := resolveList([]string{a, b}, nil, cache); err == nil {
+		t.Fatal("ждали ошибку")
+	}
+}
+
+func TestCheckSources(t *testing.T) {
+	if err := CheckSources(de + " https://sub.example.com/tok " + hy2); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckSources(de + " trojan://x@h:1"); err == nil {
+		t.Fatal("trojan:// должен отказать")
+	}
+}
+
+func TestSubscriptionErrNoToken(t *testing.T) {
+	_, err := Subscription("https://127.0.0.1:1/SECRETTOKEN", filepath.Join(t.TempDir(), "none"))
+	if err == nil || strings.Contains(err.Error(), "SECRETTOKEN") {
+		t.Fatalf("err=%v", err)
+	}
+}

@@ -127,16 +127,14 @@ func singboxConfig(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("Usage: cvpn _singbox-config <ссылки | https://подписка> [geoip-ru.srs] [адрес-в-обход ...]")
 	}
-	links := args[0]
-	if singbox.IsSubscription(links) {
-		var err error
-		links, err = singbox.Subscription(links, filepath.Join(os.TempDir(), "cvpn-subscription.txt"))
-		if links == "" {
-			return err
-		}
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
+	links, warns, err := singbox.Resolve(args[0], func(u string) string {
+		return filepath.Join(os.TempDir(), "cvpn-subscription-"+singbox.SubHost(u)+".txt")
+	})
+	for _, w := range warns {
+		fmt.Fprintln(os.Stderr, w)
+	}
+	if err != nil {
+		return err
 	}
 	geoip := ""
 	if len(args) > 1 {
@@ -193,6 +191,9 @@ func status() error {
 		return "off"
 	}
 	fmt.Printf("cisco : %s\n", onoff(s.Cisco))
+	if s.CiscoDropped {
+		fmt.Println("        отключилась сама — нужен новый код: cvpn cisco on <OTP>")
+	}
 	for _, e := range s.Exits {
 		fmt.Printf("%-6s: %s\n", e, onoff(s.Exit == e))
 	}

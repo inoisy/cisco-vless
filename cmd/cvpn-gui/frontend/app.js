@@ -50,6 +50,11 @@ function showTab(name) {
   if (name === 'connect') setTimeout(() => $('#otp').focus(), 50);
 }
 window.cvpnShow = showTab; // зовёт трей
+// Трей: cisco отвалилась сама — просим новый код.
+window.cvpnDropped = () => {
+  showTab('connect');
+  flash('Cisco отключилась (сервер выкинул сессию) — введи новый код и нажми Enter', true);
+};
 $$('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
 document.addEventListener('click', e => {
   const g = e.target.closest('[data-goto]');
@@ -141,6 +146,7 @@ async function loadSettings() {
     const v = settings[el.name];
     el.value = Array.isArray(v) ? v.join(' ') : (v ?? '');
   }
+  form.vless_link.value = (settings.vless_link || '').split(/\s+/).filter(Boolean).join('\n');
   form.wg_conf.value = form.awg_conf.value = '';
   form.wg_del.checked = form.awg_del.checked = false;
   $('#wg-state').textContent = settings.has_wg ? '— загружен' : '— нет';
@@ -168,7 +174,7 @@ form.addEventListener('submit', async e => {
     cisco_pin: f.cisco_pin.value.trim(),
     corp_domains: f.corp_domains.value.split(/[\s,]+/).filter(Boolean),
     corp_check_host: f.corp_check_host.value.trim(),
-    vless_link: f.vless_link.value.trim(),
+    vless_link: f.vless_link.value.split(/\s+/).filter(Boolean).join(' '),
     boot_exit: f.boot_exit.value,
     openconnect: f.openconnect.value.trim(),
     vpnc_script: f.vpnc_script.value.trim(),
@@ -183,9 +189,10 @@ form.addEventListener('submit', async e => {
     return;
   }
   await busy(e.submitter || $('button[type=submit]', form), async () => {
-    await api('PUT', '/settings', body);
+    const r = await api('PUT', '/settings', body);
     await loadSettings();
-    return { message: 'Настройки сохранены' };
+    const warn = (r && r.warnings) || [];
+    return { message: ['Настройки сохранены', ...warn].join('\n') };
   });
 });
 
@@ -215,8 +222,10 @@ $('#password-save').addEventListener('click', e => {
 
 $$('.reveal').forEach(b => b.addEventListener('click', () => {
   const inp = form[b.dataset.for];
-  inp.type = inp.type === 'password' ? 'text' : 'password';
-  b.textContent = inp.type === 'password' ? 'показать' : 'скрыть';
+  let hidden;
+  if (inp.tagName === 'TEXTAREA') hidden = inp.classList.toggle('secret');
+  else { inp.type = inp.type === 'password' ? 'text' : 'password'; hidden = inp.type === 'password'; }
+  b.textContent = hidden ? 'показать' : 'скрыть';
 }));
 
 $$('input[type=file][data-into]').forEach(inp => inp.addEventListener('change', async () => {

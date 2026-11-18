@@ -51,17 +51,36 @@ func (m *Manager) SetSettings(s Settings) error {
 	if s.CiscoPin != "" && !strings.HasPrefix(s.CiscoPin, "pin-sha256:") {
 		return fmt.Errorf("сертификат — в виде pin-sha256:...")
 	}
-	if s.VLESSLink != "" && !singbox.IsSubscription(s.VLESSLink) {
-		if _, err := singbox.Config(s.VLESSLink, nil, "linux", ""); err != nil {
+	s.VLESSLink = strings.Join(strings.Fields(s.VLESSLink), " ")
+	if err := singbox.CheckSources(s.VLESSLink); err != nil {
+		return fmt.Errorf("vless: %w", err)
+	}
+	subs, links := singbox.Sources(s.VLESSLink)
+	if len(links) > 0 {
+		if _, err := singbox.Config(strings.Join(links, " "), nil, "linux", ""); err != nil {
 			return fmt.Errorf("vless: %w", err)
 		}
 	}
-	if singbox.IsSubscription(s.VLESSLink) && strings.TrimSpace(s.VLESSLinks) != "" {
-		if _, err := singbox.Config(s.VLESSLinks, nil, "linux", ""); err != nil {
-			return fmt.Errorf("подписка: %w", err)
+	// Подписки, скачанные клиентом: у него бывает путь до сервера подписки,
+	// которого нет у службы без туннеля.
+	prefetched := map[string]string{}
+	for u, l := range s.VLESSSubs {
+		prefetched[u] = l
+	}
+	if len(subs) == 1 && strings.TrimSpace(s.VLESSLinks) != "" { // клиент старше нескольких подписок
+		prefetched[subs[0]] = s.VLESSLinks
+	}
+	caches := m.paths.SubscriptionCaches(firstOf(subs))
+	for _, u := range subs {
+		l := strings.TrimSpace(prefetched[u])
+		if l == "" {
+			continue
 		}
-		if err := config.WriteFileAtomic(m.paths.SubscriptionCache(), []byte(s.VLESSLinks), 0o600); err != nil {
-			return fmt.Errorf("подписка: %w", err)
+		if _, err := singbox.Config(l, nil, "linux", ""); err != nil {
+			return fmt.Errorf("подписка %s: %w", singbox.SubHost(u), err)
+		}
+		if err := config.WriteFileAtomic(caches(u), []byte(l+"\n"), 0o600); err != nil {
+			return fmt.Errorf("подписка %s: %w", singbox.SubHost(u), err)
 		}
 	}
 	switch s.BootExit {
@@ -112,6 +131,13 @@ func (m *Manager) SetSettings(s Settings) error {
 	m.cfg = &c
 	m.mu.Unlock()
 	return nil
+}
+
+func firstOf(s []string) string {
+	if len(s) == 0 {
+		return ""
+	}
+	return s[0]
 }
 
 // SetOwner — кому отвечать по сокету; ставится при установке службы.

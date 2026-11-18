@@ -130,10 +130,96 @@ func hy2Outbound(link, tag string) (map[string]any, error) {
 	return out, nil
 }
 
-// IsSubscription — в настройке vless адрес подписки, а не ссылки.
+// IsSubscription — в настройке vless ровно один адрес подписки.
 func IsSubscription(s string) bool {
 	s = strings.TrimSpace(s)
 	return strings.HasPrefix(s, "https://") && !strings.ContainsAny(s, " \n\t")
+}
+
+// Sources делит настройку vless на подписки (https://) и ссылки. Через пробел
+// в любом сочетании: подписка своего сервера плюс ссылки или подписки с
+// другими выходами — упал один выход, urltest уходит на другой.
+func Sources(spec string) (subs, links []string) {
+	for _, f := range strings.Fields(spec) {
+		if strings.HasPrefix(f, "https://") {
+			subs = append(subs, f)
+		} else {
+			links = append(links, f)
+		}
+	}
+	return subs, links
+}
+
+// CheckSources — каждая запись настройки vless — ссылка vless://,
+// hysteria2:// (hy2://) или адрес подписки https://.
+func CheckSources(spec string) error {
+	for _, f := range strings.Fields(spec) {
+		switch {
+		case strings.HasPrefix(f, "vless://"), strings.HasPrefix(f, "hysteria2://"),
+			strings.HasPrefix(f, "hy2://"), strings.HasPrefix(f, "https://"):
+		default:
+			scheme, _, _ := strings.Cut(f, "://")
+			if len(scheme) > 12 {
+				scheme = scheme[:12] + "…"
+			}
+			return fmt.Errorf("%q: нужна ссылка vless://, hysteria2:// или адрес подписки https://", scheme)
+		}
+	}
+	return nil
+}
+
+// HasSubscription — в настройке есть хотя бы одна подписка.
+func HasSubscription(spec string) bool {
+	subs, _ := Sources(spec)
+	return len(subs) > 0
+}
+
+// Resolve — ссылки для sing-box из настройки vless. Каждая подписка качается,
+// копия — в cache(адрес); не скачалась — берётся копия, нет и копии —
+// подписка пропускается. warns — что не скачалось; ошибка — только когда не
+// осталось ни одной ссылки.
+func Resolve(spec string, cache func(subURL string) string) (links string, warns []string, err error) {
+	subs, list := Sources(spec)
+	return resolveList(subs, list, cache)
+}
+
+func resolveList(subs, list []string, cache func(string) string) (links string, warns []string, err error) {
+	for _, u := range subs {
+		got, serr := Subscription(u, cache(u))
+		if serr != nil {
+			warns = append(warns, serr.Error())
+		}
+		list = append(list, strings.Fields(got)...)
+	}
+	if len(list) == 0 {
+		return "", warns, fmt.Errorf("нет ни одной ссылки: %s", strings.Join(warns, "; "))
+	}
+	return strings.Join(list, "\n") + "\n", warns, nil
+}
+
+// FetchSubscriptions качает все подписки настройки vless — от пользователя
+// (cvpn setup, значок): у него бывает путь до сервера подписки, которого нет
+// у службы без туннеля. got — адрес → ссылки; warns — что не скачалось.
+func FetchSubscriptions(spec string) (got map[string]string, warns []string) {
+	subs, _ := Sources(spec)
+	got = map[string]string{}
+	for _, u := range subs {
+		links, err := FetchSubscription(u)
+		if err != nil {
+			warns = append(warns, fmt.Sprintf("подписка %s не скачалась (%v) — служба попробует сама при vless on", SubHost(u), err))
+			continue
+		}
+		got[u] = links
+	}
+	return got, warns
+}
+
+// SubHost — адрес подписки без пути: в пути токен, в логи и вывод — только хост.
+func SubHost(subURL string) string {
+	if u, err := url.Parse(subURL); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return "подписка"
 }
 
 // Subscription качает подписку (base64 или текст, ссылка на строку) и кладёт
@@ -147,9 +233,9 @@ func Subscription(subURL, cache string) (string, error) {
 	}
 	b, cerr := os.ReadFile(cache)
 	if cerr != nil || len(b) == 0 {
-		return "", fmt.Errorf("подписка: %w (и нет сохранённой копии)", err)
+		return "", fmt.Errorf("подписка %s: %w (и нет сохранённой копии)", SubHost(subURL), err)
 	}
-	return string(b), fmt.Errorf("подписка: %w — беру сохранённую копию", err)
+	return string(b), fmt.Errorf("подписка %s: %w — беру сохранённую копию", SubHost(subURL), err)
 }
 
 // FetchSubscription — ссылки из подписки без копии на диске.
@@ -161,6 +247,9 @@ func fetchSubscription(subURL string, timeout time.Duration) (string, error) {
 	c := &http.Client{Timeout: timeout}
 	resp, err := c.Get(subURL)
 	if err != nil {
+		if ue, ok := err.(*url.Error); ok { // в url.Error — адрес с токеном
+			return "", ue.Err
+		}
 		return "", err
 	}
 	defer resp.Body.Close()

@@ -57,8 +57,16 @@ func (g *gui) update() {
 	}
 	lastMu.Lock()
 	same := reflect.DeepEqual(sp, lastStatus) && lastStatus != nil
+	// Cisco отвалилась сама — окно с полем OTP, один раз на обрыв.
+	dropped := sp != nil && sp.CiscoDropped && (lastStatus == nil || !lastStatus.CiscoDropped)
 	lastStatus = sp
 	lastMu.Unlock()
+	if dropped {
+		g.show("connect")
+		application.InvokeAsync(func() {
+			g.win.ExecJS("window.cvpnDropped && window.cvpnDropped()")
+		})
+	}
 	if same {
 		return
 	}
@@ -145,8 +153,19 @@ func (g *gui) buildMenu(s *daemon.Status) {
 	m.Add("Настройки…").OnClick(func(*application.Context) { g.show("settings") })
 	m.Add("Логи").OnClick(func(*application.Context) { g.show("logs") })
 	m.AddSeparator()
-	m.Add(fmt.Sprintf("Закрыть значок (VPN %s)", map[bool]string{true: "останется", false: "выключен"}[s != nil && (s.Cisco || s.Exit != "")])).
+	on := s != nil && (s.Cisco || s.Exit != "")
+	m.Add(fmt.Sprintf("Закрыть значок (VPN %s)", map[bool]string{true: "останется", false: "выключен"}[on])).
 		OnClick(func(*application.Context) { g.app.Quit() })
+	if on {
+		// Как cvpn off и выход: выключить всё и закрыть значок.
+		m.Add("Выключить VPN и выйти").OnClick(func(*application.Context) {
+			if _, err := g.c.Off(); err != nil {
+				g.show("status")
+				return
+			}
+			g.app.Quit()
+		})
+	}
 
 	g.tray.SetMenu(m)
 }

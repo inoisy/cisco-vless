@@ -19,7 +19,9 @@ import (
 
 	"github.com/inoisy/cisco-vless/internal/client"
 	"github.com/inoisy/cisco-vless/internal/config"
+	"github.com/inoisy/cisco-vless/internal/daemon"
 	"github.com/inoisy/cisco-vless/internal/ipc"
+	"github.com/inoisy/cisco-vless/internal/singbox"
 )
 
 //go:embed frontend
@@ -137,6 +139,27 @@ func (g *gui) handler() http.Handler {
 		var req struct{ OTP string }
 		json.NewDecoder(r.Body).Decode(&req)
 		g.replyMsg(w)(g.c.CiscoOn(req.OTP))
+	})
+	// Настройки — через client, а не прокси: подписки качаются здесь, от
+	// пользователя, как в cvpn setup.
+	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
+		var s daemon.Settings
+		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
+			writeErr(w, err.Error())
+			return
+		}
+		var warns []string
+		s.VLESSSubs, warns = singbox.FetchSubscriptions(s.VLESSLink)
+		saved, err := g.c.SetSettings(s)
+		if err != nil {
+			writeErr(w, err.Error())
+			return
+		}
+		go g.refresh()
+		json.NewEncoder(w).Encode(struct {
+			daemon.Settings
+			Warnings []string `json:"warnings,omitempty"`
+		}{saved, warns})
 	})
 	mux.HandleFunc("POST /api/password", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Password string }

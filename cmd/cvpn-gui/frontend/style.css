@@ -118,3 +118,6 @@ pre {
   padding: 8px; margin: 0; max-height: 220px; overflow: auto;
   font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
 }
+
+/* Ссылки и подписки vless — с ключами: скрыты, пока не нажали «показать». */
+textarea.secret { -webkit-text-security: disc; text-security: disc; }

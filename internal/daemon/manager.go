@@ -27,6 +27,10 @@ type Manager struct {
 	cisco   *proc
 	ciscoIP string // куда поставлен host-маршрут шлюза
 	vless   *proc
+	// ciscoStopping — процесс, который гасим сами (CiscoOff); ciscoDropped —
+	// cisco завершилась без нас (сервер выкинул, 24 ч) и ждёт нового OTP.
+	ciscoStopping *proc
+	ciscoDropped  bool
 }
 
 func NewManager(p config.Paths) (*Manager, error) {
@@ -78,11 +82,12 @@ func (m *Manager) Status(withIP bool) Status {
 	c, _ := m.procs()
 	m.mu.Lock()
 	s := Status{
-		Cisco:      c.alive(),
-		Exits:      m.configuredExits(),
-		Configured: m.cfg.CiscoConfigured(),
-		CorpHost:   m.cfg.CorpCheckHost,
-		OS:         runtime.GOOS,
+		Cisco:        c.alive(),
+		CiscoDropped: m.ciscoDropped && !c.alive(),
+		Exits:        m.configuredExits(),
+		Configured:   m.cfg.CiscoConfigured(),
+		CorpHost:     m.cfg.CorpCheckHost,
+		OS:           runtime.GOOS,
 	}
 	m.mu.Unlock()
 	s.Exit = m.currentExit()
@@ -234,6 +239,7 @@ func (m *Manager) CiscoOn(req CiscoOn) (string, error) {
 	}
 	m.mu.Lock()
 	m.cisco, m.ciscoIP = p, ip
+	m.ciscoDropped = false
 	m.mu.Unlock()
 	go m.watchCisco(p, ip)
 	return "cisco: подключён", nil
@@ -247,16 +253,28 @@ func (m *Manager) watchCisco(p *proc, ip string) {
 	if m.cisco == p {
 		m.cisco = nil
 	}
+	dropped := m.ciscoStopping != p
+	if dropped {
+		m.ciscoDropped = true
+	}
 	m.mu.Unlock()
 	netx.DelHostRoute(ip)
 	vpncscript.Cleanup(m.paths)
-	log.Printf("cisco: openconnect завершился")
+	if dropped {
+		log.Printf("cisco: openconnect завершился сам — нужен новый OTP")
+	} else {
+		log.Printf("cisco: openconnect завершился")
+	}
 }
 
 func (m *Manager) CiscoOff() string {
 	m.op.Lock()
 	defer m.op.Unlock()
 	p, _ := m.procs()
+	m.mu.Lock()
+	m.ciscoDropped = false // выключили сами — OTP не просить
+	m.ciscoStopping = p
+	m.mu.Unlock()
 	if !p.alive() {
 		vpncscript.Cleanup(m.paths)
 		return "cisco: и так выключен"
@@ -430,21 +448,24 @@ func (m *Manager) writeSingBox() error {
 		log.Printf("vless: без geoip-ru, напрямую только зоны .ru и др.")
 		geoip = ""
 	}
-	links := m.cfg.VLESSLink
-	if singbox.IsSubscription(links) {
-		links, err = singbox.Subscription(links, m.paths.SubscriptionCache())
-		if links == "" {
-			// Сервер подписки бывает недоступен без туннеля (провайдер режет
-			// путь до DE). Есть конфиг с прошлого раза — поднимаемся на нём.
-			if _, serr := os.Stat(m.paths.SingBoxFile()); serr == nil {
-				log.Printf("vless: %v — беру прежний singbox.json", err)
-				return nil
-			}
-			return fmt.Errorf("vless: %w", err)
+	spec := m.cfg.VLESSLink
+	subs, _ := singbox.Sources(spec)
+	first := ""
+	if len(subs) > 0 {
+		first = subs[0]
+	}
+	links, warns, err := singbox.Resolve(spec, m.paths.SubscriptionCaches(first))
+	for _, w := range warns {
+		log.Printf("vless: %s", w)
+	}
+	if err != nil {
+		// Сервер подписки бывает недоступен без туннеля (провайдер режет
+		// путь до DE). Есть конфиг с прошлого раза — поднимаемся на нём.
+		if _, serr := os.Stat(m.paths.SingBoxFile()); serr == nil {
+			log.Printf("vless: %v — беру прежний singbox.json", err)
+			return nil
 		}
-		if err != nil {
-			log.Printf("vless: %v", err)
-		}
+		return fmt.Errorf("vless: %w", err)
 	}
 	b, err := singbox.Config(links, exclude, runtime.GOOS, geoip)
 	if err != nil {

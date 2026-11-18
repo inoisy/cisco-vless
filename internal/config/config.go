@@ -2,6 +2,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -98,6 +100,22 @@ func (p Paths) SingBoxFile() string { return filepath.Join(p.Etc, "singbox.json"
 func (p Paths) GeoIPFile() string   { return filepath.Join(p.Etc, "geoip-ru.srs") }
 func (p Paths) SubscriptionCache() string {
 	return filepath.Join(p.Etc, "subscription.txt")
+}
+
+// SubscriptionCacheFor — копия подписки по адресу. Первая подписка в
+// настройке пишет в subscription.txt, как до нескольких подписок; остальные —
+// в subscription-<хеш адреса>.txt.
+func (p Paths) SubscriptionCacheFor(subURL string, first bool) string {
+	if first {
+		return p.SubscriptionCache()
+	}
+	h := sha256.Sum256([]byte(subURL))
+	return filepath.Join(p.Etc, "subscription-"+hex.EncodeToString(h[:4])+".txt")
+}
+
+// SubscriptionCaches — функция копии для singbox.Resolve по настройке vless.
+func (p Paths) SubscriptionCaches(firstSub string) func(string) string {
+	return func(u string) string { return p.SubscriptionCacheFor(u, u == firstSub) }
 }
 func (p Paths) PasswordFile() string {
 	return filepath.Join(p.Etc, "cisco-password")
