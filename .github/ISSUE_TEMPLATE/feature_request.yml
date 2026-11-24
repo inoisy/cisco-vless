@@ -1,0 +1,18 @@
+name: Feature request / Предложение
+description: An idea or a missing feature / Идея или чего не хватает
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do / Какую задачу решаете
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help / Что помогло бы
+  - type: input
+    id: os
+    attributes:
+      label: OS / ОС

@@ -1,0 +1,230 @@
+# cvpn — Cisco AnyConnect вместе с VLESS, WireGuard или AmneziaWG
+
+[English](README.md)
+
+Корпоративный Cisco AnyConnect и личный VPN одновременно: рабочая сеть идёт
+через Cisco, всё остальное — через VLESS, WireGuard или AmneziaWG.
+macOS, Linux и Windows; командная строка и значок в трее.
+
+Обычно так не получается. Cisco Secure Client, Hiddify, V2Box, Amnezia и
+прочие клиенты перехватывают маршруты и DNS каждый под себя, и после второго
+подключения отваливается либо работа, либо всё остальное. `cvpn` заменяет
+их одной программой, в которой порядок включения не важен.
+
+```
+cvpn on 123456     # vless + cisco (123456 — одноразовый код, если нужен)
+cvpn               # статус
+cvpn off           # выключить всё
+```
+
+Или значок в трее: включить/выключить Cisco и выход, окно с настройками и
+логами.
+
+## Установка
+
+Нужно: адрес сервера Cisco, логин и пароль; ссылка `vless://...` (или адрес
+подписки `https://...`) и/или конфиг WireGuard / AmneziaWG.
+
+С подпиской cvpn берёт все серверы из неё (VLESS TCP и Hysteria2; XHTTP
+sing-box не умеет) и собирает их в группу `urltest`: sing-box раз в минуту
+проверяет каждый и держит живой с наименьшей задержкой, а упавший — меняет
+сам. Подписка качается при включении vless; не скачалась — берётся копия с
+прошлого раза.
+
+**macOS** ([Homebrew](https://brew.sh)) и **Linux** (Debian/Ubuntu с systemd):
+
+```
+git clone https://github.com/inoisy/cisco-vless && cd cisco-vless
+./install.sh
+```
+
+**Windows** — сначала поставь [OpenConnect-GUI](https://gui.openconnect-vpn.net/download/)
+(из него нужен `openconnect.exe` с драйвером wintun), затем в PowerShell от
+администратора:
+
+```
+git clone https://github.com/inoisy/cisco-vless; cd cisco-vless
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Если стоит Go — установщик соберёт `cvpn` из исходников, иначе скачает
+релиз. Дальше он ставит службу `cvpn`, значок в трее (с автозапуском) и
+спрашивает настройки: сервер Cisco, логин, группу, корп-домены, ссылку VLESS,
+конфиги WireGuard / AmneziaWG. Отпечаток сертификата Cisco показывает на
+подтверждение. Пароль Cisco на macOS хранится в Keychain, на Linux и
+Windows — в файле, который читает только root / SYSTEM.
+
+Настройки потом меняются в окне «Настройки» или `cvpn setup`.
+
+### Что идёт мимо VLESS
+
+По умолчанию через VLESS идёт всё, кроме корп-сети и локальных адресов.
+Исключения — в `cvpn setup`, в окне «Настройки» или в `config.json`:
+
+```json
+"routing": {
+  "ru_direct": true,
+  "proxy_domains": ["api.example.ru"]
+}
+```
+
+- `ru_direct` — российские сайты напрямую, с адреса провайдера: маркетплейсы
+  и банки режут или проверяют зарубежные IP. Зоны `.ru`, `.su`, `.рф`, `.рус`,
+  `.moscow`, `.москва` и IP по geoip RU; DNS для этих зон — Яндекс
+  (77.88.8.8), без туннеля.
+- `proxy_domains` — точные имена хостов, которые идут через VLESS, даже если
+  попадают под `ru_direct`: сервисы с белым списком IP.
+
+Применяется при следующем `cvpn vless on`. У `config.json` от версии, где
+этой настройки не было, правила остаются прежними: `ru_direct` включён,
+`api.reg.ru` — через VLESS.
+
+Выходы, кроме VLESS, ставятся отдельно:
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| WireGuard | `CVPN_WG=1 ./install.sh` | `CVPN_WG=1 ./install.sh` | [клиент WireGuard](https://www.wireguard.com/install/) |
+| AmneziaWG | `CVPN_AWG=1 ./install.sh` (сборка из исходников) | `CVPN_AWG=1 ./install.sh` (ppa:amnezia/ppa) | [клиент AmneziaWG](https://github.com/amnezia-vpn/amneziawg-windows-client/releases) |
+
+Cisco Secure Client и другие VPN-клиенты перед работой выключи: `cvpn status`
+и окно предупредят, если они подключены.
+
+Обновление с bash-версии — тот же `./install.sh`: старая выключится,
+настройки и пароль подхватятся, sudo для `cvpn` больше не нужен.
+Исключение — сервер, где sing-box живёт отдельным юнитом и на нём держатся
+другие службы: см. «Сервер».
+
+## Команды
+
+| команда | что делает |
+|---|---|
+| `cvpn` | статус: что включено, внешний IP, резолвится ли корп-хост |
+| `cvpn on [vless\|wg\|awg] [otp]` | выход (по умолчанию vless) + cisco |
+| `cvpn off` | выключить всё |
+| `cvpn cisco on [otp]` / `off` | только корп-сеть |
+| `cvpn vless on` / `off` | весь остальной трафик через VLESS |
+| `cvpn wg on` / `off` | весь остальной трафик через WireGuard |
+| `cvpn awg on` / `off` | весь остальной трафик через AmneziaWG |
+| `cvpn boot vless\|wg\|awg\|off` | какой выход поднимать при старте системы |
+| `cvpn setup` | настройки |
+| `cvpn password` | сменить пароль Cisco |
+| `cvpn log` | логи cisco, vless и службы |
+| `cvpn service install\|uninstall\|restart` | служба (sudo / администратор) |
+
+cisco совместим с любым выходом; vless, wg и awg — взаимоисключающие:
+включение одного выключает другой.
+
+## Как это устроено
+
+- **Служба** (`cvpn daemon`: launchd / systemd / служба Windows) работает с
+  правами root/SYSTEM и держит openconnect и sing-box дочерними процессами.
+  CLI и значок в трее — её клиенты: говорят с ней по unix-сокету
+  (`/var/run/cvpn.sock`) или named pipe (`\\.\pipe\cvpn`), доступ — у root,
+  администраторов и пользователя, который ставил. Поэтому sudo не нужен.
+- **Cisco** — `openconnect` в режиме split-tunnel: в туннель идут только
+  подсети, которые прислал сервер. Шлюз Cisco заранее получает маршрут через
+  физическую сеть. Иначе при включённом VLESS TLS-сессия с шлюзом поднимется
+  через прокси, а после маршрута от vpnc-script уйдёт другим путём с другого
+  IP — и сессия рвётся (`SSL read error`, переподключение, обрыв).
+- **DNS** — штатный vpnc-script перехватывает DNS всей системы, и публичные
+  домены перестают резолвиться. `cvpn` отбирает у него DNS и делает
+  split-DNS: в корп-DNS идут только корп-домены (из настроек и присланные
+  сервером). macOS — `/etc/resolver/<домен>`, Linux — systemd-resolved,
+  Windows — правила NRPT.
+- **VLESS** — `sing-box` в tun-режиме: весь трафик без настройки программ.
+  Адрес tun `198.18.0.1/30` не пересекается с корп-сетями.
+- **WireGuard / AmneziaWG** — `wg-quick` / `awg-quick` на macOS и Linux,
+  служба туннеля официального клиента на Windows (`/installtunnelservice`).
+- **Linux-сервер** — ответы на входящие соединения (SSH) и всё, у чего есть
+  точный маршрут (туннель Cisco, локальная сеть), идут мимо VLESS, поэтому
+  включение vless по SSH не отрезает доступ к серверу. Публичные DNS-серверы
+  провайдера тоже идут напрямую: многие не отвечают на запросы с чужого IP.
+
+Файлы:
+
+| | macOS / Linux | Windows |
+|---|---|---|
+| программа | `/usr/local/lib/cvpn` | `C:\Program Files\cvpn` |
+| настройки | `/usr/local/etc/cvpn` (`config.json`, `singbox.json`, `cvpn-wg.conf`, `cvpn-awg.conf`) | `C:\ProgramData\cvpn` |
+| логи | `/var/log/cvpn-*.log` | `C:\ProgramData\cvpn\log` |
+
+## Сервер: bash-версия (`server/`)
+
+На сервере, где выход VLESS нужен службам, а не человеку, ставится
+bash-версия: `server/cvpn` — последняя bash-версия до Go (`0b40a84`),
+`server/vpnc-wrapper.sh`, `server/cvpn-vless.service`. Отличие от Go:
+
+- sing-box — отдельный юнит `cvpn-vless`, а не дочерний процесс службы:
+  на него ссылаются другие юниты (`Wants/After`, сторож делает stop/start),
+  а обновление cvpn не перезапускает выход;
+- `singbox.json` cvpn не пишет: конфиг правят руками и свои скрипты (свои
+  маршруты, selector каналов, `clash_api`). Go пересобирает его при каждом
+  `vless on` со ссылкой в настройках.
+
+Обновить файлы (конфиг не трогает, выход не перезапускает):
+
+```sh
+sudo server/install.sh --dry-run   # что поменяется
+sudo server/install.sh
+```
+
+Корневой `install.sh` на таком сервере (есть `cvpn-guard.timer` или
+`cvpn-sub.timer`) отказывается работать; обход — `CVPN_FORCE_GO=1`, перед
+этим бэкап `/usr/local/lib/cvpn`, `/usr/local/etc/cvpn` и юнита.
+
+Общее у версий — правила в обход tun sing-box на Linux, держать одинаковыми:
+`_rules` в `server/cvpn` и `linuxRules` в
+`internal/daemon/platform_linux.go`:
+
+| приоритет | правило | зачем |
+|---|---|---|
+| 55 | `from <адрес физического интерфейса> lookup main` | ответы на входящие (SSH) и трафик, привязанный к адресу, — мимо tun |
+| 60 | `lookup main suppress_prefixlength 0` | всё, у чего есть точный маршрут (tun cisco, шлюз cisco, локальная сеть), — по нему |
+
+Имена tun тоже общие: sing-box `tun0`, cisco `tun1`.
+
+## Ограничения
+
+- Интерфейс (CLI, окно, установщики) — только на русском.
+- VLESS: транспорт только `tcp`, `security=reality|tls|none`.
+- Linux: split-DNS работает, только если `/etc/resolv.conf` смотрит в
+  systemd-resolved (установщик предупредит).
+- Windows: openconnect останавливается без disconnect-скрипта (у службы нет
+  консоли для Ctrl+C); адаптер wintun и его маршруты уходят вместе с
+  процессом, правила NRPT и маршрут к шлюзу снимает служба.
+- Пароль Cisco + одноразовый код передаются формой «пароль, затем код» —
+  как у AnyConnect с двухфакторкой. Если код не нужен — оставь поле пустым.
+
+## Разработка
+
+Подробнее, в том числе проверка без шлюза Cisco, — [CONTRIBUTING.md](CONTRIBUTING.md)
+(на английском). Об уязвимостях — [SECURITY.md](SECURITY.md).
+
+```
+go test ./...
+go build ./cmd/cvpn ./cmd/cvpn-gui
+```
+
+Без root, в песочнице: `CVPN_ROOT=/tmp/cvpn ./cvpn daemon` — все пути
+(сокет, настройки, логи) под `CVPN_ROOT`, CLI и GUI с той же переменной
+говорят с этой копией. Окно без webview, в обычном браузере:
+`CVPN_ROOT=/tmp/cvpn ./cvpn-gui -serve 127.0.0.1:8765`.
+
+GUI — [Wails v3](https://v3.wails.io) (Go + webview): на macOS нужен Xcode
+Command Line Tools, на Linux — `libgtk-4-dev libwebkitgtk-6.0-dev`, на
+Windows собирается без cgo (`-ldflags -H=windowsgui`). Сборки под все ОС —
+`.github/workflows/build.yml`, релиз — по тегу `v*`.
+
+## Удаление
+
+```
+./uninstall.sh                                            # macOS, Linux
+powershell -ExecutionPolicy Bypass -File uninstall.ps1    # Windows, от администратора
+```
+
+## Товарные знаки
+
+Проект не связан с Cisco Systems и не одобрен ею. Cisco и AnyConnect —
+товарные знаки Cisco Systems, Inc.; здесь они называют протокол и шлюз, с
+которыми работает программа. Кода Cisco в проекте нет: подключается
+[OpenConnect](https://www.infradead.org/openconnect/).

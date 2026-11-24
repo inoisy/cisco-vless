@@ -1,7 +1,7 @@
 #!/bin/bash
 # Обновить bash-версию cvpn на сервере (Linux, systemd), где sing-box держит
 # отдельный юнит cvpn-vless, а singbox.json правят руками и чужие скрипты
-# (VPS агентов: cvpn-guard, cvpn-sub).
+# (сторож, обновление подписки).
 #
 # Что делает:
 #   - кладёт cvpn и vpnc-wrapper.sh в /usr/local/lib/cvpn (прежние — в *.bak-<время>);
