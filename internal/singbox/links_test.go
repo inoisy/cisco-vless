@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	de    = "vless://11111111-2222-3333-4444-555555555555@92.51.37.88:443?security=reality&sni=www.google.com&fp=chrome&pbk=PUBKEY&sid=ab12&flow=xtls-rprx-vision&type=tcp#DE-TCP-443"
-	ru    = "vless://11111111-2222-3333-4444-555555555555@135.106.225.250:9443?security=reality&sni=www.google.com&fp=chrome&pbk=PUBKEY&sid=ab12&flow=xtls-rprx-vision&type=tcp#RU-TCP-9443"
-	xhttp = "vless://11111111-2222-3333-4444-555555555555@135.106.225.250:2053?security=reality&sni=dl.google.com&pbk=PUBKEY&type=xhttp&path=%2Fxh#RU-XHTTP-2053"
-	hy2   = "hysteria2://pa%3Ass@135.106.225.250:4443?sni=www.bing.com&insecure=1&obfs=salamander&obfs-password=ob#RU-HY2-4443"
+	de    = "vless://11111111-2222-3333-4444-555555555555@192.0.2.10:443?security=reality&sni=www.google.com&fp=chrome&pbk=PUBKEY&sid=ab12&flow=xtls-rprx-vision&type=tcp#DE-TCP-443"
+	ru    = "vless://11111111-2222-3333-4444-555555555555@198.51.100.20:9443?security=reality&sni=www.google.com&fp=chrome&pbk=PUBKEY&sid=ab12&flow=xtls-rprx-vision&type=tcp#RU-TCP-9443"
+	xhttp = "vless://11111111-2222-3333-4444-555555555555@198.51.100.20:2053?security=reality&sni=dl.google.com&pbk=PUBKEY&type=xhttp&path=%2Fxh#RU-XHTTP-2053"
+	hy2   = "hysteria2://pa%3Ass@198.51.100.20:4443?sni=www.bing.com&insecure=1&obfs=salamander&obfs-password=ob#RU-HY2-4443"
 )
 
 func TestGroup(t *testing.T) {
