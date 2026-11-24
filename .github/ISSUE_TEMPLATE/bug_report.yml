@@ -1,0 +1,66 @@
+name: Bug report / Ошибка
+description: Something doesn't work / Что-то не работает
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        English or Russian, whichever is easier. / На русском или английском.
+
+        **Remove secrets first**: gateway address, login, one-time codes, `vless://` links, subscription URLs, keys, internal host names.
+        **Сначала уберите секреты**: адрес шлюза, логин, коды, ссылки `vless://`, адреса подписок, ключи, внутренние имена.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what you expected / Что случилось и чего ждали
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Как повторить
+      placeholder: |
+        1. cvpn vless on
+        2. cvpn cisco on
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / Версия
+      description: "`cvpn version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS / ОС
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (amd64)
+        - Linux (arm64)
+        - Windows (amd64)
+        - Windows (arm64)
+    validations:
+      required: true
+  - type: input
+    id: osversion
+    attributes:
+      label: OS version / Версия ОС
+      placeholder: macOS 26.1, Ubuntu 24.04, Windows 11 25H2
+  - type: checkboxes
+    id: exits
+    attributes:
+      label: What was on / Что было включено
+      options:
+        - label: Cisco
+        - label: VLESS / Hysteria2
+        - label: WireGuard
+        - label: AmneziaWG
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Логи
+      description: "`cvpn log`, without secrets / без секретов"
+      render: text
