@@ -441,14 +441,18 @@ func (m *Manager) writeSingBox() error {
 		exclude = append(exclude, ip)
 	}
 	exclude = append(exclude, netx.PublicDNS()...)
-	geoip := m.paths.GeoIPFile()
-	ok, err := singbox.EnsureGeoIP(geoip)
-	if err != nil {
-		log.Printf("vless: %v", err)
-	}
-	if !ok {
-		log.Printf("vless: без geoip-ru, напрямую только зоны .ru и др.")
-		geoip = ""
+	routing := m.cfg.RoutingRules()
+	geoip := ""
+	if routing.RUDirect {
+		geoip = m.paths.GeoIPFile()
+		ok, err := singbox.EnsureGeoIP(geoip)
+		if err != nil {
+			log.Printf("vless: %v", err)
+		}
+		if !ok {
+			log.Printf("vless: без geoip-ru, напрямую только зоны .ru и др.")
+			geoip = ""
+		}
 	}
 	spec := m.cfg.VLESSLink
 	subs, _ := singbox.Sources(spec)
@@ -469,7 +473,13 @@ func (m *Manager) writeSingBox() error {
 		}
 		return fmt.Errorf("vless: %w", err)
 	}
-	b, err := singbox.Config(links, exclude, runtime.GOOS, geoip)
+	b, err := singbox.Config(links, singbox.Options{
+		Exclude:      exclude,
+		GOOS:         runtime.GOOS,
+		RUDirect:     routing.RUDirect,
+		GeoIP:        geoip,
+		ProxyDomains: routing.ProxyDomains,
+	})
 	if err != nil {
 		return fmt.Errorf("vless: %w", err)
 	}

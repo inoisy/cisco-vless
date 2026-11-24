@@ -32,6 +32,9 @@ type Config struct {
 
 	VLESSLink string `json:"vless_link,omitempty"`
 
+	// Что при включённом vless идёт мимо общего правила. После Load не nil.
+	Routing *Routing `json:"routing,omitempty"`
+
 	// Выход, который демон поднимает при старте ("" — никакой).
 	BootExit string `json:"boot_exit,omitempty"`
 
@@ -42,6 +45,29 @@ type Config struct {
 	Openconnect string `json:"openconnect,omitempty"`
 	VPNCScript  string `json:"vpnc_script,omitempty"`
 	SingBox     string `json:"sing_box,omitempty"`
+}
+
+// Routing — исключения из «весь остальной трафик через VLESS».
+type Routing struct {
+	// RUDirect — российские сайты (зоны .ru, .su, .рф и др. и geoip RU) напрямую.
+	RUDirect bool `json:"ru_direct"`
+	// ProxyDomains — точные имена хостов, которым нужен выход VLESS, даже если
+	// они попадают под RUDirect: сервисы с белым списком IP.
+	ProxyDomains []string `json:"proxy_domains,omitempty"`
+}
+
+// LegacyRouting — правила, которые до появления настройки были зашиты в код.
+// Их получает config.json без routing, чтобы обновление не поменяло маршруты.
+func LegacyRouting() *Routing {
+	return &Routing{RUDirect: true, ProxyDomains: []string{"api.reg.ru"}}
+}
+
+// RoutingRules — настройка маршрутизации; нулевая, если её нет.
+func (c *Config) RoutingRules() Routing {
+	if c.Routing == nil {
+		return Routing{}
+	}
+	return *c.Routing
 }
 
 func (c *Config) CiscoConfigured() bool {
@@ -139,13 +165,19 @@ func Load(p Paths) (*Config, error) {
 		if c, ok := loadLegacy(p); ok {
 			return c, nil
 		}
-		return &Config{}, nil
+		return &Config{Routing: &Routing{}}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	c := &Config{}
-	return c, json.Unmarshal(b, c)
+	if err := json.Unmarshal(b, c); err != nil {
+		return c, err
+	}
+	if c.Routing == nil {
+		c.Routing = LegacyRouting()
+	}
+	return c, nil
 }
 
 func Save(p Paths, c *Config) error {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inoisy/cisco-vless/internal/client"
+	"github.com/inoisy/cisco-vless/internal/config"
 	"github.com/inoisy/cisco-vless/internal/singbox"
 )
 
@@ -44,6 +45,18 @@ func setup() error {
 			return err
 		}
 		s.VLESSLink = link
+	}
+	if s.VLESSLink != "" {
+		r := config.Routing{}
+		if s.Routing != nil {
+			r = *s.Routing
+		}
+		r.RUDirect = yesNoDef("Российские сайты (.ru, .рф, российские IP) — напрямую, мимо VLESS?", r.RUDirect)
+		r.ProxyDomains = strings.Fields(ask("Хосты, которым нужен именно VLESS, через пробел (- — очистить)", strings.Join(r.ProxyDomains, " ")))
+		if len(r.ProxyDomains) == 1 && r.ProxyDomains[0] == "-" {
+			r.ProxyDomains = nil
+		}
+		s.Routing = &r
 	}
 	for _, t := range []struct {
 		name string

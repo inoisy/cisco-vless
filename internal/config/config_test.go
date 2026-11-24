@@ -51,3 +51,35 @@ func TestLoadLegacy(t *testing.T) {
 		t.Fatalf("после Save: %+v", c2)
 	}
 }
+
+func TestRoutingDefaults(t *testing.T) {
+	// Чистая установка: всё через VLESS.
+	p := Paths{Etc: t.TempDir()}
+	c, err := Load(p)
+	if err != nil || c.RoutingRules().RUDirect || len(c.RoutingRules().ProxyDomains) != 0 {
+		t.Fatalf("чистая установка: %+v err=%v", c.Routing, err)
+	}
+	// И после сохранения не превращается в старую.
+	if err := Save(p, c); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = Load(p); err != nil || c.RoutingRules().RUDirect {
+		t.Fatalf("после Save: %+v err=%v", c.Routing, err)
+	}
+
+	// config.json прежней версии: правила, которые были зашиты, остаются.
+	if err := os.WriteFile(p.ConfigFile(), []byte(`{"cisco_host":"vpn.example.com"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = Load(p); err != nil || !reflect.DeepEqual(c.Routing, LegacyRouting()) {
+		t.Fatalf("прежний конфиг: %+v err=%v", c.Routing, err)
+	}
+	// Явное «выключено» переживает сохранение.
+	c.Routing = &Routing{}
+	if err := Save(p, c); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = Load(p); err != nil || c.RoutingRules().RUDirect {
+		t.Fatalf("выключено: %+v err=%v", c.Routing, err)
+	}
+}

@@ -37,6 +37,7 @@ func loadLegacy(p Paths) (*Config, bool) {
 		CorpDomains:   strings.Fields(v["CORP_DOMAINS"]),
 		CorpCheckHost: v["CORP_CHECK_HOST"],
 		VPNCScript:    v["VPNC_SCRIPT"],
+		Routing:       LegacyRouting(),
 	}, true
 }
 

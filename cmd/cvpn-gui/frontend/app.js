@@ -147,6 +147,8 @@ async function loadSettings() {
     el.value = Array.isArray(v) ? v.join(' ') : (v ?? '');
   }
   form.vless_link.value = (settings.vless_link || '').split(/\s+/).filter(Boolean).join('\n');
+  form.ru_direct.checked = !!(settings.routing && settings.routing.ru_direct);
+  form.proxy_domains.value = ((settings.routing && settings.routing.proxy_domains) || []).join(' ');
   form.wg_conf.value = form.awg_conf.value = '';
   form.wg_del.checked = form.awg_del.checked = false;
   $('#wg-state').textContent = settings.has_wg ? '— загружен' : '— нет';
@@ -175,6 +177,10 @@ form.addEventListener('submit', async e => {
     corp_domains: f.corp_domains.value.split(/[\s,]+/).filter(Boolean),
     corp_check_host: f.corp_check_host.value.trim(),
     vless_link: f.vless_link.value.split(/\s+/).filter(Boolean).join(' '),
+    routing: {
+      ru_direct: f.ru_direct.checked,
+      proxy_domains: f.proxy_domains.value.split(/[\s,]+/).filter(Boolean),
+    },
     boot_exit: f.boot_exit.value,
     openconnect: f.openconnect.value.trim(),
     vpnc_script: f.vpnc_script.value.trim(),
