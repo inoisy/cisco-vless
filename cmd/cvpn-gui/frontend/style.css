@@ -72,6 +72,7 @@ label { display: block; margin: 10px 0 0; font-size: 12px; color: var(--muted); 
 label > input, label > select, label > textarea, label > .row { margin-top: 4px; }
 label > input, label > select, label > textarea { width: 100%; }
 label.inline { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+label.inline > input { width: auto; }
 input, select, textarea {
   font: inherit; color: var(--text); background: var(--bg);
   border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
