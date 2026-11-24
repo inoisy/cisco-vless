@@ -6,10 +6,8 @@
 через Cisco, всё остальное — через VLESS, WireGuard или AmneziaWG.
 macOS, Linux и Windows; командная строка и значок в трее.
 
-Обычно так не получается. Cisco Secure Client, Hiddify, V2Box, Amnezia и
-прочие клиенты перехватывают маршруты и DNS каждый под себя, и после второго
-подключения отваливается либо работа, либо всё остальное. `cvpn` заменяет
-их одной программой, в которой порядок включения не важен.
+Два VPN-клиента рядом могут конфликтовать, если каждый забирает себе маршруты
+и DNS. `cvpn` ведёт оба подключения сам, порядок включения не важен.
 
 ```
 cvpn on 123456     # vless + cisco (123456 — одноразовый код, если нужен)
@@ -221,6 +219,11 @@ Windows собирается без cgo (`-ldflags -H=windowsgui`). Сборки
 ./uninstall.sh                                            # macOS, Linux
 powershell -ExecutionPolicy Bypass -File uninstall.ps1    # Windows, от администратора
 ```
+
+## Лицензия
+
+[MIT](LICENSE). openconnect, sing-box, WireGuard и AmneziaWG — отдельные
+программы со своими лицензиями.
 
 ## Товарные знаки
 
