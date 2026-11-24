@@ -183,7 +183,7 @@ go build ./cmd/cvpn ./cmd/cvpn-gui
 `CVPN_ROOT=/tmp/cvpn ./cvpn-gui -serve 127.0.0.1:8765`.
 
 GUI — [Wails v3](https://v3.wails.io) (Go + webview): на macOS нужен Xcode
-Command Line Tools, на Linux — `libgtk-3-dev libwebkit2gtk-4.1-dev`, на
+Command Line Tools, на Linux — `libgtk-4-dev libwebkitgtk-6.0-dev`, на
 Windows собирается без cgo (`-ldflags -H=windowsgui`). Сборки под все ОС —
 `.github/workflows/build.yml`, релиз — по тегу `v*`.
 

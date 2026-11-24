@@ -16,7 +16,7 @@ jobs:
       matrix:
         include:
           - { os: macos-latest, goos: darwin, goarch: arm64 }
-          - { os: macos-13, goos: darwin, goarch: amd64 }
+          - { os: macos-15-intel, goos: darwin, goarch: amd64 }
           - { os: ubuntu-latest, goos: linux, goarch: amd64 }
           - { os: ubuntu-24.04-arm, goos: linux, goarch: arm64 }
           - { os: windows-latest, goos: windows, goarch: amd64 }
@@ -31,7 +31,7 @@ jobs:
 
       - name: Linux GUI deps
         if: matrix.goos == 'linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Test
         run: go vet ./cmd/cvpn ./internal/... && go test ./...

@@ -102,7 +102,7 @@ deps_linux() {
 	command -v systemctl >/dev/null || die "нужен systemd"
 	local pkgs=(openconnect vpnc-scripts curl iproute2 ca-certificates)
 	[ "${CVPN_WG:-}" = 1 ] && pkgs+=(wireguard-tools)
-	[ "$GUI" = 1 ] && pkgs+=(libgtk-3-0 libwebkit2gtk-4.1-0)
+	[ "$GUI" = 1 ] && pkgs+=(libgtk-4-1 libwebkitgtk-6.0-4)
 	say "apt-get install ${pkgs[*]}"
 	$SUDO apt-get update -qq
 	$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" >/dev/null
@@ -139,7 +139,7 @@ if command -v go >/dev/null && [ -f go.mod ]; then
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$ver" -o "$tmp/cvpn" ./cmd/cvpn
 	if [ "$GUI" = 1 ]; then
 		if [ "$OS" = Linux ]; then
-			$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev >/dev/null
+			$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev >/dev/null
 		fi
 		go build -trimpath -ldflags "-s -w" -o "$tmp/cvpn-gui" ./cmd/cvpn-gui 2>&1 | grep -v 'warning' || true
 		[ -x "$tmp/cvpn-gui" ] || die "GUI не собрался (CVPN_GUI=0 — без него)"
