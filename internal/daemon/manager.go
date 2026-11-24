@@ -202,10 +202,12 @@ func (m *Manager) CiscoOn(req CiscoOn) (string, error) {
 		return "", fmt.Errorf("cisco: маршрут к шлюзу: %w", err)
 	}
 
+	// DPD 5 с: обрыв openconnect признаёт после двух интервалов тишины. Без DTLS
+	// весь корп-трафик идёт одной TCP-сессией — зависла она, стоит всё.
 	args := []string{"--protocol=anyconnect", "--user=" + c.CiscoUser,
 		"--servercert", c.CiscoPin, "--resolve", c.CiscoHost + ":" + ip,
 		"--script", script,
-		"--force-dpd=20", "--reconnect-timeout=3600"}
+		"--force-dpd=5", "--reconnect-timeout=3600"}
 	if c.CiscoGroup != "" {
 		args = append(args, "--authgroup="+c.CiscoGroup)
 	}
