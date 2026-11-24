@@ -6,10 +6,9 @@ Corporate Cisco AnyConnect and a personal VPN at the same time: the work
 network goes through Cisco, everything else through VLESS, WireGuard or
 AmneziaWG. macOS, Linux and Windows; command line and a tray icon.
 
-Normally the two don't mix. Cisco Secure Client, Hiddify, V2Box, Amnezia and
-the like each take over routes and DNS, so after the second connection either
-work or everything else stops working. `cvpn` replaces them with one program
-where the order of connecting doesn't matter.
+Two VPN clients running side by side can conflict when each takes over routes
+and DNS. `cvpn` manages both connections itself, and the order of connecting
+doesn't matter.
 
 ```
 cvpn on 123456     # vless + cisco (123456 is the one-time code, if you need one)
@@ -181,6 +180,11 @@ gateway. Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 ./uninstall.sh                                            # macOS, Linux
 powershell -ExecutionPolicy Bypass -File uninstall.ps1    # Windows, as administrator
 ```
+
+## License
+
+[MIT](LICENSE). openconnect, sing-box, WireGuard and AmneziaWG are separate
+programs under their own licenses.
 
 ## Trademarks
 
