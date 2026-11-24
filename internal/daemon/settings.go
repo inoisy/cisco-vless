@@ -27,6 +27,7 @@ func (m *Manager) Settings() Settings {
 		CorpDomains:   c.CorpDomains,
 		CorpCheckHost: c.CorpCheckHost,
 		VLESSLink:     c.VLESSLink,
+		Routing:       c.Routing,
 		BootExit:      c.BootExit,
 		Openconnect:   c.Openconnect,
 		VPNCScript:    c.VPNCScript,
@@ -57,7 +58,7 @@ func (m *Manager) SetSettings(s Settings) error {
 	}
 	subs, links := singbox.Sources(s.VLESSLink)
 	if len(links) > 0 {
-		if _, err := singbox.Config(strings.Join(links, " "), nil, "linux", ""); err != nil {
+		if _, err := singbox.Config(strings.Join(links, " "), singbox.Options{GOOS: "linux"}); err != nil {
 			return fmt.Errorf("vless: %w", err)
 		}
 	}
@@ -76,7 +77,7 @@ func (m *Manager) SetSettings(s Settings) error {
 		if l == "" {
 			continue
 		}
-		if _, err := singbox.Config(l, nil, "linux", ""); err != nil {
+		if _, err := singbox.Config(l, singbox.Options{GOOS: "linux"}); err != nil {
 			return fmt.Errorf("подписка %s: %w", singbox.SubHost(u), err)
 		}
 		if err := config.WriteFileAtomic(caches(u), []byte(l+"\n"), 0o600); err != nil {
@@ -102,6 +103,12 @@ func (m *Manager) SetSettings(s Settings) error {
 	c.CorpDomains = vpncscript.SafeDomains(s.CorpDomains)
 	c.CorpCheckHost = strings.TrimSpace(s.CorpCheckHost)
 	c.VLESSLink = s.VLESSLink
+	if r := s.Routing; r != nil {
+		c.Routing = &config.Routing{
+			RUDirect:     r.RUDirect,
+			ProxyDomains: vpncscript.SafeDomains(r.ProxyDomains),
+		}
+	}
 	c.BootExit = s.BootExit
 	c.Openconnect = strings.TrimSpace(s.Openconnect)
 	c.VPNCScript = strings.TrimSpace(s.VPNCScript)

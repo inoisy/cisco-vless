@@ -1,5 +1,5 @@
 // Package singbox превращает ссылку vless:// в конфиг sing-box: tun, трафик
-// через VLESS, российские сайты — напрямую.
+// через VLESS, по настройке российские сайты — напрямую.
 package singbox
 
 import (
@@ -25,15 +25,26 @@ func TunName(goos string) string {
 	return ""
 }
 
-// Российские сайты идут напрямую, с адреса провайдера: маркетплейсы, банки и
-// Метрика режут или проверяют зарубежные IP. Домены — по зонам, остальное
+// Options.RUDirect: российские сайты идут напрямую, с адреса провайдера —
+// маркетплейсы, банки и Метрика режут или проверяют зарубежные IP. Домены — по зонам, остальное
 // (CDN на .com, vk.com) — по geoip. DNS для зон — Яндекс напрямую, чтобы CDN
 // отдавал российские узлы.
 var ruSuffixes = []string{"ru", "su", "xn--p1ai", "xn--p1acf", "moscow", "xn--80adxhks"}
 
-// viaProxy — российские адреса, которым нужен именно выход VLESS: у reg.ru API
-// белый список IP.
-var viaProxy = []string{"api.reg.ru"}
+// Options — всё, кроме ссылок, из чего собирается конфиг.
+type Options struct {
+	// Exclude — адреса в обход туннеля (шлюз Cisco, публичные DNS провайдера);
+	// без маски считаются /32.
+	Exclude []string
+	GOOS    string
+	// RUDirect — российские сайты напрямую.
+	RUDirect bool
+	// GeoIP — путь к локальному geoip-ru.srs (см. EnsureGeoIP), нужен при
+	// RUDirect; пустой — российские IP без правила, напрямую идут только зоны.
+	GeoIP string
+	// ProxyDomains — имена хостов, которые идут через VLESS вопреки RUDirect.
+	ProxyDomains []string
+}
 
 var linkRe = regexp.MustCompile(`^vless://([^@]+)@(\[[^\]]+\]|[^:/?#]+):(\d+)/?(?:\?([^#]*))?(?:#.*)?$`)
 
@@ -43,10 +54,7 @@ var linkRe = regexp.MustCompile(`^vless://([^@]+)@(\[[^\]]+\]|[^:/?#]+):(\d+)/?(
 // сам держит живой сервер с меньшей задержкой и уходит на другой, когда этот
 // перестал отвечать (DE напрямую ↔ RU через посредника). Ссылки, которые
 // sing-box не поднимет (xhttp), в группе пропускаются.
-// exclude — адреса в обход туннеля (шлюз Cisco, публичные DNS провайдера);
-// без маски считаются /32. geoip — путь к локальному geoip-ru.srs (см.
-// EnsureGeoIP); пустой — российские IP без правила, напрямую идут только зоны.
-func Config(links string, exclude []string, goos, geoip string) ([]byte, error) {
+func Config(links string, o Options) ([]byte, error) {
 	outs, err := Outbounds(links)
 	if err != nil {
 		return nil, err
@@ -61,12 +69,12 @@ func Config(links string, exclude []string, goos, geoip string) ([]byte, error) 
 		"strict_route": false,
 		"stack":        "system",
 	}
-	if name := TunName(goos); name != "" {
+	if name := TunName(o.GOOS); name != "" {
 		tun["interface_name"] = name
 	}
-	if len(exclude) > 0 {
-		ex := make([]string, 0, len(exclude))
-		for _, a := range exclude {
+	if len(o.Exclude) > 0 {
+		ex := make([]string, 0, len(o.Exclude))
+		for _, a := range o.Exclude {
 			if !strings.Contains(a, "/") {
 				a += "/32"
 			}
@@ -79,44 +87,51 @@ func Config(links string, exclude []string, goos, geoip string) ([]byte, error) 
 	// для всех доменов, поэтому запросы надо перехватить и ответить самому:
 	// DoH через VLESS — заодно без подмены ответов провайдером. bootstrap
 	// нужен только чтобы резолвить адрес сервера VLESS, если в ссылке домен.
+	dns := []any{
+		map[string]any{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "proxy"},
+		map[string]any{"type": "udp", "tag": "bootstrap", "server": "1.1.1.1"},
+	}
+	dnsRules := []any{}
+	rules := []any{
+		map[string]any{"action": "sniff"},
+		map[string]any{"protocol": "dns", "action": "hijack-dns"},
+		map[string]any{"ip_is_private": true, "outbound": "direct"},
+	}
+	// Раньше зон: иначе правило .ru перехватит хост.
+	if len(o.ProxyDomains) > 0 {
+		dnsRules = append(dnsRules, map[string]any{"domain": o.ProxyDomains, "server": "remote"})
+		rules = append(rules, map[string]any{"domain": o.ProxyDomains, "outbound": "proxy"})
+	}
+	if o.RUDirect {
+		dns = append(dns, map[string]any{"type": "udp", "tag": "ru", "server": "77.88.8.8"})
+		dnsRules = append(dnsRules, map[string]any{"domain_suffix": ruSuffixes, "server": "ru"})
+		rules = append(rules, map[string]any{"domain_suffix": ruSuffixes, "outbound": "direct"})
+	}
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn"},
 		"dns": map[string]any{
-			"servers": []any{
-				map[string]any{"type": "https", "tag": "remote", "server": "1.1.1.1", "detour": "proxy"},
-				map[string]any{"type": "udp", "tag": "bootstrap", "server": "1.1.1.1"},
-				map[string]any{"type": "udp", "tag": "ru", "server": "77.88.8.8"},
-			},
-			"rules": []any{
-				map[string]any{"domain": viaProxy, "server": "remote"},
-				map[string]any{"domain_suffix": ruSuffixes, "server": "ru"},
-			},
-			"final": "remote",
+			"servers": dns,
+			"rules":   dnsRules,
+			"final":   "remote",
 		},
 		"inbounds":  []any{tun},
 		"outbounds": append(outs, map[string]any{"type": "direct", "tag": "direct"}),
 		"route": map[string]any{
 			"auto_detect_interface":   true,
 			"default_domain_resolver": "bootstrap",
-			"rules": []any{
-				map[string]any{"action": "sniff"},
-				map[string]any{"protocol": "dns", "action": "hijack-dns"},
-				map[string]any{"ip_is_private": true, "outbound": "direct"},
-				map[string]any{"domain": viaProxy, "outbound": "proxy"},
-				map[string]any{"domain_suffix": ruSuffixes, "outbound": "direct"},
-			},
-			"final": "proxy",
+			"rules":                   rules,
+			"final":                   "proxy",
 		},
 	}
 	// Rule-set локальный: удалённый sing-box качает на каждом старте и, не
 	// успев за 10 с, падает ("initialize rule-set take too much time" →
 	// "start service: context canceled").
-	if geoip != "" {
+	if o.RUDirect && o.GeoIP != "" {
 		route := cfg["route"].(map[string]any)
 		route["rules"] = append(route["rules"].([]any),
 			map[string]any{"rule_set": "geoip-ru", "outbound": "direct"})
 		route["rule_set"] = []any{map[string]any{
-			"type": "local", "tag": "geoip-ru", "format": "binary", "path": geoip,
+			"type": "local", "tag": "geoip-ru", "format": "binary", "path": o.GeoIP,
 		}}
 	}
 	return json.MarshalIndent(cfg, "", "  ")

@@ -18,7 +18,7 @@ const (
 )
 
 func TestGroup(t *testing.T) {
-	b, err := Config(strings.Join([]string{de, ru, xhttp, hy2, de}, "\n"), nil, "darwin", "")
+	b, err := Config(strings.Join([]string{de, ru, xhttp, hy2, de}, "\n"), Options{GOOS: "darwin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestGroup(t *testing.T) {
 }
 
 func TestGroupAllBad(t *testing.T) {
-	if _, err := Config(xhttp+" "+xhttp, nil, "linux", ""); err == nil || !strings.Contains(err.Error(), "ни одна") {
+	if _, err := Config(xhttp+" "+xhttp, Options{GOOS: "linux"}); err == nil || !strings.Contains(err.Error(), "ни одна") {
 		t.Fatalf("err=%v", err)
 	}
 }

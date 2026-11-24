@@ -144,7 +144,16 @@ func singboxConfig(args []string) error {
 	if len(args) > 2 {
 		exclude = args[2:]
 	}
-	b, err := singbox.Config(links, exclude, runtime.GOOS, geoip)
+	// Настроек службы здесь нет (config.json читает только root) — правила те
+	// же, что были зашиты.
+	r := config.LegacyRouting()
+	b, err := singbox.Config(links, singbox.Options{
+		Exclude:      exclude,
+		GOOS:         runtime.GOOS,
+		RUDirect:     r.RUDirect,
+		GeoIP:        geoip,
+		ProxyDomains: r.ProxyDomains,
+	})
 	if err != nil {
 		return err
 	}

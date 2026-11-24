@@ -38,8 +38,18 @@ func askSecret(q string) string {
 	return string(b)
 }
 
-func yesNo(q string) bool {
-	a := strings.ToLower(ask(q+" [y/N]", ""))
+func yesNo(q string) bool { return yesNoDef(q, false) }
+
+// yesNoDef — то же, но Enter оставляет def.
+func yesNoDef(q string, def bool) bool {
+	hint := " [y/N]"
+	if def {
+		hint = " [Y/n]"
+	}
+	a := strings.ToLower(ask(q+hint, ""))
+	if a == "" {
+		return def
+	}
 	return strings.HasPrefix(a, "y") || strings.HasPrefix(a, "д")
 }
 

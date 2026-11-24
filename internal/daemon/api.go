@@ -2,6 +2,8 @@ package daemon
 
 // Типы запросов и ответов API демона — общие для CLI и GUI.
 
+import "github.com/inoisy/cisco-vless/internal/config"
+
 type Status struct {
 	Cisco bool `json:"cisco"`
 	// Cisco отвалилась сама (не cvpn off) — значок просит новый OTP.
@@ -35,7 +37,9 @@ type Settings struct {
 	VLESSLinks string `json:"vless_links,omitempty"`
 	// То же для нескольких подписок: адрес → ссылки.
 	VLESSSubs map[string]string `json:"vless_subs,omitempty"`
-	BootExit  string            `json:"boot_exit"`
+	// nil — не менять: клиент старше этой настройки.
+	Routing  *config.Routing `json:"routing,omitempty"`
+	BootExit string          `json:"boot_exit"`
 	// Содержимое конфигов; nil — не менять, "" — удалить.
 	WGConf  *string `json:"wg_conf,omitempty"`
 	AWGConf *string `json:"awg_conf,omitempty"`
